@@ -357,26 +357,67 @@
             border: 1px solid #e0e0e0;
         }
 
-        .difficulty-examples {
+        .checkbox-group {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
             gap: 10px;
-            margin-top: 15px;
+            margin-top: 10px;
         }
 
-        .difficulty-example {
-            background: white;
-            padding: 10px;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            border-left: 3px solid #ddd;
+        .checkbox-option {
+            display: flex;
+            align-items: center;
+            background: #f9f9f9;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 2px solid transparent;
         }
 
-        .difficulty-example.level-1 { border-left-color: #4CAF50; }
-        .difficulty-example.level-3 { border-left-color: #FFC107; }
-        .difficulty-example.level-5 { border-left-color: #FF9800; }
-        .difficulty-example.level-7 { border-left-color: #FF5722; }
-        .difficulty-example.level-10 { border-left-color: #f44336; }
+        .checkbox-option:hover {
+            background: #f0f7ff;
+        }
+
+        .checkbox-option.selected {
+            background: #e8f4ff;
+            border-color: #2d89ef;
+        }
+
+        .custom-checkbox {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ccc;
+            border-radius: 4px;
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        .checkbox-option.selected .custom-checkbox {
+            border-color: #2d89ef;
+            background-color: #2d89ef;
+        }
+
+        .custom-checkbox:after {
+            content: '✓';
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            display: none;
+        }
+
+        .checkbox-option.selected .custom-checkbox:after {
+            display: block;
+        }
+
+        .checkbox-label {
+            cursor: pointer;
+            flex-grow: 1;
+            font-size: 0.9rem;
+        }
 
         .price-display {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -752,6 +793,27 @@
             color: #666;
             font-size: 0.8rem;
         }
+
+        .difficulty-examples {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .difficulty-example {
+            background: white;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            border-left: 3px solid #ddd;
+        }
+
+        .difficulty-example.level-1 { border-left-color: #4CAF50; }
+        .difficulty-example.level-3 { border-left-color: #FFC107; }
+        .difficulty-example.level-5 { border-left-color: #FF9800; }
+        .difficulty-example.level-7 { border-left-color: #FF5722; }
+        .difficulty-example.level-10 { border-left-color: #f44336; }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
@@ -884,9 +946,14 @@
                         
                         <div class="difficulty-labels">
                             <div class="difficulty-label active" data-level="1">1</div>
+                            <div class="difficulty-label" data-level="2">2</div>
                             <div class="difficulty-label" data-level="3">3</div>
+                            <div class="difficulty-label" data-level="4">4</div>
                             <div class="difficulty-label" data-level="5">5</div>
+                            <div class="difficulty-label" data-level="6">6</div>
                             <div class="difficulty-label" data-level="7">7</div>
+                            <div class="difficulty-label" data-level="8">8</div>
+                            <div class="difficulty-label" data-level="9">9</div>
                             <div class="difficulty-label" data-level="10">10</div>
                         </div>
 
@@ -1084,33 +1151,68 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Описание работ</label>
-                    <textarea id="worksDescription" placeholder="Дополнительные пожелания, особенности помещения..."></textarea>
+                    <label>Оборудование</label>
+                    <div class="checkbox-group" id="equipmentGroup">
+                        <div class="checkbox-option" data-value="Стремянка">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Стремянка</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Пылесос">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Пылесос</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Парогенератор">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Парогенератор</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Мойщик окон">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Мойщик окон</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Ведро">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Ведро</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Мопы">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Мопы</span>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="form-group">
-                    <label>Оборудование и химия</label>
-                    <div class="inline-fields">
-                        <div class="inline-field">
-                            <label>Оборудование</label>
-                            <select id="equipment" multiple style="height: 100px;">
-                                <option value="Стремянка">Стремянка</option>
-                                <option value="Пылесос">Пылесос</option>
-                                <option value="Парогенератор">Парогенератор</option>
-                                <option value="Мойщик окон">Мойщик окон</option>
-                            </select>
+                    <label>Химия</label>
+                    <div class="checkbox-group" id="chemistryGroup">
+                        <div class="checkbox-option" data-value="Универсальное средство">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Универсальное средство</span>
                         </div>
-                        <div class="inline-field">
-                            <label>Химия</label>
-                            <select id="chemistry" multiple style="height: 100px;">
-                                <option value="Универсальное средство">Универсальное средство</option>
-                                <option value="Средство от жира">Средство от жира</option>
-                                <option value="Средство для сантехники">Средство для сантехники</option>
-                                <option value="Антискотч">Антискотч</option>
-                            </select>
+                        <div class="checkbox-option" data-value="Средство от жира">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Средство от жира</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Средство для сантехники">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Средство для сантехники</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Антискотч">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Антискотч</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Средство для окон">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Средство для окон</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Полироль для мебели">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Полироль для мебели</span>
                         </div>
                     </div>
-                    <div class="field-note">Удерживайте Ctrl для выбора нескольких вариантов</div>
+                </div>
+
+                <div class="form-group">
+                    <label>Описание работ</label>
+                    <textarea id="worksDescription" placeholder="Дополнительные пожелания, особенности помещения..."></textarea>
                 </div>
 
                 <button class="btn-create-order" id="createOrderBtn">
@@ -1164,8 +1266,6 @@
             },
             minOrder: 3500,
             // Коэффициент сложности 1-10:
-            // 1-5: до +35% (1=0%, 5=35%)
-            // 6-10: до +100% (10=100%)
             difficulty: {
                 1: 1.00,   // +0%
                 2: 1.09,   // +9%
@@ -1239,6 +1339,10 @@
         const masterPay = document.getElementById('masterPay');
         const worksDescription = document.getElementById('worksDescription');
         
+        // Чекбоксы оборудования и химии
+        const equipmentOptions = document.querySelectorAll('#equipmentGroup .checkbox-option');
+        const chemistryOptions = document.querySelectorAll('#chemistryGroup .checkbox-option');
+        
         // Кнопки
         const calculateBtn = document.getElementById('calculateBtn');
         const resetBtn = document.getElementById('resetBtn');
@@ -1307,6 +1411,20 @@
             extraInputs.forEach(input => {
                 input.addEventListener('change', calculatePrice);
                 input.addEventListener('input', calculatePrice);
+            });
+            
+            // Обработчики для чекбоксов оборудования
+            equipmentOptions.forEach(option => {
+                option.addEventListener('click', function() {
+                    this.classList.toggle('selected');
+                });
+            });
+            
+            // Обработчики для чекбоксов химии
+            chemistryOptions.forEach(option => {
+                option.addEventListener('click', function() {
+                    this.classList.toggle('selected');
+                });
             });
             
             // Кнопка расчета
@@ -1476,6 +1594,10 @@
             appliancesCount.value = '0';
             farTrip.value = '0';
             
+            // Сброс чекбоксов
+            equipmentOptions.forEach(opt => opt.classList.remove('selected'));
+            chemistryOptions.forEach(opt => opt.classList.remove('selected'));
+            
             calculatePrice();
             
             showStatus('Калькулятор сброшен', 'success');
@@ -1524,9 +1646,21 @@
             // Генерация ID заказа
             const orderId = generateOrderId();
             
-            // Получение выбранного оборудования и химии
-            const equipment = getSelectedOptions('equipment');
-            const chemistry = getSelectedOptions('chemistry');
+            // Получение выбранного оборудования
+            const equipment = [];
+            equipmentOptions.forEach(option => {
+                if (option.classList.contains('selected')) {
+                    equipment.push(option.getAttribute('data-value'));
+                }
+            });
+            
+            // Получение выбранной химии
+            const chemistry = [];
+            chemistryOptions.forEach(option => {
+                if (option.classList.contains('selected')) {
+                    chemistry.push(option.getAttribute('data-value'));
+                }
+            });
             
             // Получаем тип уборки по-русски
             let cleaningTypeText = '';
@@ -1598,19 +1732,7 @@
             return 'CLN-' + Date.now().toString().slice(-8);
         }
 
-        // Получение выбранных опций
-        function getSelectedOptions(selectId) {
-            const select = document.getElementById(selectId);
-            const selected = [];
-            for (let i = 0; i < select.options.length; i++) {
-                if (select.options[i].selected) {
-                    selected.push(select.options[i].value);
-                }
-            }
-            return selected;
-        }
-
-        // Генерация текста заявки
+        // Генерация текста заявки (без времени создания заявки)
         function generateOrderText() {
             if (!currentOrderData) return;
             
@@ -1662,8 +1784,6 @@ ${currentOrderData.chemistry}
 ─────────────────
 ${currentOrderData.worksDescription || '—'}
 
-────────────────────
-✅ Заявка сформирована: ${new Date().toLocaleString('ru-RU')}
 📷 Фото будут прикреплены в чате`;
 
             resultArea.textContent = text;
@@ -1702,9 +1822,9 @@ ${currentOrderData.worksDescription || '—'}
             customerFlat.value = '';
             worksDescription.value = '';
             
-            // Сброс выбранного оборудования и химии
-            document.getElementById('equipment').selectedIndex = -1;
-            document.getElementById('chemistry').selectedIndex = -1;
+            // Сброс чекбоксов
+            equipmentOptions.forEach(opt => opt.classList.remove('selected'));
+            chemistryOptions.forEach(opt => opt.classList.remove('selected'));
             
             // Сброс шагов
             step1.classList.add('active');
