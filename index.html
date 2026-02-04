@@ -814,6 +814,13 @@
         .difficulty-example.level-5 { border-left-color: #FF9800; }
         .difficulty-example.level-7 { border-left-color: #FF5722; }
         .difficulty-example.level-10 { border-left-color: #f44336; }
+
+        .pets-group {
+            margin-top: 15px;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+        }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
@@ -835,7 +842,7 @@
                     </div>
                     <input type="text" id="managerName" placeholder="Введите ваше имя" maxlength="50" value="Менеджер">
                 </div>
-                <div class="field-note">Имя менеджера будет указано в заявке</div>
+                <div class="field-note">Имя менеджера будет указано в заявке и отправлено в таблицу</div>
             </div>
         </header>
 
@@ -856,7 +863,7 @@
 
         <div class="manager-only">
             <i class="fas fa-exclamation-triangle"></i>
-            <strong>Внимание менеджера!</strong> Коэффициент сложности: 1-5 (макс +35%), 6-10 (до +100%). Уровень 1 - стандартная уборка, уровень 5 - сложные условия с животными, уровень 10 - экстремальные случаи.
+            <strong>Внимание менеджера!</strong> Коэффициент сложности: 1-5 (максимум +35%), 6-10 (до +100%). Уровень 1 - стандартная уборка, уровень 5 - сложные условия с животными, уровень 10 - экстремальные случаи.
         </div>
 
         <div class="system-container">
@@ -991,7 +998,7 @@
                     <div class="inline-fields">
                         <div class="inline-field">
                             <label>Окна (створки)</label>
-                            <input type="number" id="windowsCount" min="0" value="0" placeholder="Кол-во">
+                            <input type="number" id="windowsCount" min="0" value="0" placeholder="Количество">
                         </div>
                         <div class="inline-field">
                             <label>Тип мойки</label>
@@ -1005,29 +1012,29 @@
                     <div class="inline-fields">
                         <div class="inline-field">
                             <label>Шкафы (шт)</label>
-                            <input type="number" id="cabinetsCount" min="0" value="0" placeholder="Кол-во">
+                            <input type="number" id="cabinetsCount" min="0" value="0" placeholder="Количество">
                         </div>
                         <div class="inline-field">
                             <label>Холодильники (шт)</label>
-                            <input type="number" id="fridgeCount" min="0" value="0" placeholder="Кол-во">
+                            <input type="number" id="fridgeCount" min="0" value="0" placeholder="Количество">
                         </div>
                     </div>
 
                     <div class="inline-fields">
                         <div class="inline-field">
                             <label>Духовые шкафы (шт)</label>
-                            <input type="number" id="ovenCount" min="0" value="0" placeholder="Кол-во">
+                            <input type="number" id="ovenCount" min="0" value="0" placeholder="Количество">
                         </div>
                         <div class="inline-field">
                             <label>Вытяжки (шт)</label>
-                            <input type="number" id="hoodCount" min="0" value="0" placeholder="Кол-во">
+                            <input type="number" id="hoodCount" min="0" value="0" placeholder="Количество">
                         </div>
                     </div>
 
                     <div class="inline-fields">
                         <div class="inline-field">
                             <label>Мелкая техника (шт)</label>
-                            <input type="number" id="appliancesCount" min="0" value="0" placeholder="Кол-во">
+                            <input type="number" id="appliancesCount" min="0" value="0" placeholder="Количество">
                         </div>
                         <div class="inline-field">
                             <label>Дальний выезд</label>
@@ -1035,6 +1042,20 @@
                                 <option value="0">Нет</option>
                                 <option value="1000">Да (+1000 руб)</option>
                             </select>
+                        </div>
+                    </div>
+
+                    <div class="pets-group">
+                        <label>Наличие домашних животных</label>
+                        <div class="radio-group" id="petsGroup">
+                            <div class="radio-option selected" data-value="нет">
+                                <div class="custom-radio"></div>
+                                <span class="radio-label">Нет</span>
+                            </div>
+                            <div class="radio-option" data-value="есть">
+                                <div class="custom-radio"></div>
+                                <span class="radio-label">Есть</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1177,6 +1198,10 @@
                             <div class="custom-checkbox"></div>
                             <span class="checkbox-label">Мопы</span>
                         </div>
+                        <div class="checkbox-option" data-value="Скребок">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Скребок</span>
+                        </div>
                     </div>
                 </div>
 
@@ -1206,6 +1231,10 @@
                         <div class="checkbox-option" data-value="Полироль для мебели">
                             <div class="custom-checkbox"></div>
                             <span class="checkbox-label">Полироль для мебели</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Средство для строительных загрязнений">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Для строительных загрязнений</span>
                         </div>
                     </div>
                 </div>
@@ -1239,7 +1268,7 @@
         </div>
 
         <footer>
-            <p>© 2023 Система расчета и оформления заявок. Для внутреннего использования менеджерами.</p>
+            <p>© 2024 Система расчета и оформления заявок. Для внутреннего использования менеджерами.</p>
             <p style="margin-top: 5px; font-size: 0.8rem;">Все расчеты являются предварительными. Точную стоимость определяет менеджер.</p>
         </footer>
     </div>
@@ -1316,6 +1345,7 @@
         const difficultySlider = document.getElementById('difficultySlider');
         const difficultyValue = document.getElementById('difficultyValue');
         const difficultyLabels = document.querySelectorAll('.difficulty-label');
+        const petsOptions = document.querySelectorAll('#petsGroup .radio-option');
         
         // Дополнительные услуги
         const windowsCount = document.getElementById('windowsCount');
@@ -1402,6 +1432,14 @@
                     difficultySlider.value = level;
                     updateDifficultyDisplay();
                     calculatePrice();
+                });
+            });
+            
+            // Обработчики для домашних животных
+            petsOptions.forEach(option => {
+                option.addEventListener('click', function() {
+                    petsOptions.forEach(opt => opt.classList.remove('selected'));
+                    this.classList.add('selected');
                 });
             });
             
@@ -1594,6 +1632,10 @@
             appliancesCount.value = '0';
             farTrip.value = '0';
             
+            // Сброс домашних животных
+            petsOptions.forEach(opt => opt.classList.remove('selected'));
+            document.querySelector('#petsGroup .radio-option').classList.add('selected');
+            
             // Сброс чекбоксов
             equipmentOptions.forEach(opt => opt.classList.remove('selected'));
             chemistryOptions.forEach(opt => opt.classList.remove('selected'));
@@ -1670,9 +1712,20 @@
                 case 'post-renovation': cleaningTypeText = 'После ремонта'; break;
             }
             
+            // Получаем домашних животных
+            const pets = document.querySelector('#petsGroup .radio-option.selected').getAttribute('data-value');
+            
+            // Форматирование даты в день.месяц
+            const dateValue = orderDate.value;
+            let formattedDate = '';
+            if (dateValue) {
+                const [year, month, day] = dateValue.split('-');
+                formattedDate = `${day}.${month}`;
+            }
+            
             // Подготовка данных для отправки
             currentOrderData = {
-                // Информация о менеджере
+                // Информация о менеджере (включено для Google Таблиц)
                 manager: manager,
                 orderId: orderId,
                 
@@ -1693,13 +1746,14 @@
                 hoodCount: parseInt(hoodCount.value) || 0,
                 appliancesCount: parseInt(appliancesCount.value) || 0,
                 farTrip: farTrip.value === '1000' ? 'Да' : 'Нет',
+                pets: pets,
                 
                 // Данные клиента
                 customerName: customerName.value,
                 customerPhone: customerPhone.value,
                 customerAddress: customerAddress.value,
                 customerFlat: customerFlat.value,
-                orderDate: orderDate.value,
+                orderDate: formattedDate,
                 orderTime: orderTime.value,
                 orderTotal: orderTotal.value || '0',
                 masterPay: masterPay.value || '0',
@@ -1732,60 +1786,115 @@
             return 'CLN-' + Date.now().toString().slice(-8);
         }
 
-        // Генерация текста заявки (без времени создания заявки)
+        // Генерация текста заявки
         function generateOrderText() {
             if (!currentOrderData) return;
             
-            const text = 
-`🧹 ЗАКАЗ НА УБОРКУ №${currentOrderData.orderId}
-
-📋 ОБЩАЯ ИНФОРМАЦИЯ:
-────────────────────
-Менеджер: ${currentOrderData.manager}
-Тип уборки: ${currentOrderData.cleaningType}
-Площадь: ${currentOrderData.area} м²
-Тип помещения: ${currentOrderData.roomType}
-Коэффициент сложности: Уровень ${currentOrderData.difficulty} (+${currentOrderData.difficultyPercent}%)
-Дата: ${currentOrderData.orderDate}
-Время: ${currentOrderData.orderTime}
-
-💰 ФИНАНСЫ:
-──────────
-Расчетная стоимость: ${formatPrice(currentOrderData.calculatedPrice)}
-Сумма заказа: ${currentOrderData.orderTotal} руб
-Зарплата мастерам: ${currentOrderData.masterPay} руб
-
-👤 ДАННЫЕ КЛИЕНТА:
-─────────────────
-Имя: ${currentOrderData.customerName}
-Телефон: ${currentOrderData.customerPhone}
-Адрес: ${currentOrderData.customerAddress}
-Квартира/офис: ${currentOrderData.customerFlat || '—'}
-
-🔧 ДОПОЛНИТЕЛЬНЫЕ УСЛУГИ:
-────────────────────────
-Окна: ${currentOrderData.windowsCount} шт (${currentOrderData.windowsType})
-Шкафы: ${currentOrderData.cabinetsCount} шт
-Холодильники: ${currentOrderData.fridgeCount} шт
-Духовые шкафы: ${currentOrderData.ovenCount} шт
-Вытяжки: ${currentOrderData.hoodCount} шт
-Мелкая техника: ${currentOrderData.appliancesCount} шт
-Дальний выезд: ${currentOrderData.farTrip}
-
-🛠 ОБОРУДОВАНИЕ:
-────────────────
-${currentOrderData.equipment}
-
-🧴 ХИМИЯ:
-─────────
-${currentOrderData.chemistry}
-
-📝 ОПИСАНИЕ РАБОТ:
-─────────────────
-${currentOrderData.worksDescription || '—'}
-
-📷 Фото будут прикреплены в чате`;
-
+            let text = `🧹 ЗАКАЗ НА УБОРКУ №${currentOrderData.orderId}\n\n`;
+            
+            // ОБЩАЯ ИНФОРМАЦИЯ
+            text += `📋 ОБЩАЯ ИНФОРМАЦИЯ:\n────────────────────\n`;
+            text += `Менеджер: ${currentOrderData.manager}\n`;
+            text += `Тип уборки: ${currentOrderData.cleaningType}\n`;
+            text += `Площадь: ${currentOrderData.area} м²\n`;
+            text += `Тип помещения: ${currentOrderData.roomType}\n`;
+            
+            // Добавляем домашних животных
+            if (currentOrderData.pets === 'есть') {
+                text += `Домашние животные: Да\n`;
+            }
+            
+            // Форматированная дата
+            if (currentOrderData.orderDate) {
+                text += `Дата: ${currentOrderData.orderDate}\n`;
+            }
+            
+            if (currentOrderData.orderTime) {
+                text += `Время: ${currentOrderData.orderTime}\n`;
+            }
+            text += `\n`;
+            
+            // ФИНАНСЫ
+            text += `💰 ФИНАНСЫ:\n──────────\n`;
+            text += `Сумма заказа: ${currentOrderData.orderTotal} руб\n`;
+            
+            // Добавляем зарплату мастерам только если не 0
+            if (currentOrderData.masterPay && currentOrderData.masterPay !== '0') {
+                text += `Зарплата мастерам: ${currentOrderData.masterPay} руб\n`;
+            }
+            text += `\n`;
+            
+            // ДАННЫЕ КЛИЕНТА
+            text += `👤 ДАННЫЕ КЛИЕНТА:\n─────────────────\n`;
+            text += `Имя: ${currentOrderData.customerName}\n`;
+            text += `Телефон: ${currentOrderData.customerPhone}\n`;
+            text += `Адрес: ${currentOrderData.customerAddress}\n`;
+            
+            // Добавляем квартиру только если заполнена
+            if (currentOrderData.customerFlat) {
+                text += `Квартира/офис: ${currentOrderData.customerFlat}\n`;
+            }
+            text += `\n`;
+            
+            // ДОПОЛНИТЕЛЬНЫЕ УСЛУГИ (только если есть)
+            let hasExtras = false;
+            let extrasText = '';
+            
+            if (currentOrderData.windowsCount > 0) {
+                extrasText += `Окна: ${currentOrderData.windowsCount} шт (${currentOrderData.windowsType})\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.cabinetsCount > 0) {
+                extrasText += `Шкафы: ${currentOrderData.cabinetsCount} шт\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.fridgeCount > 0) {
+                extrasText += `Холодильники: ${currentOrderData.fridgeCount} шт\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.ovenCount > 0) {
+                extrasText += `Духовые шкафы: ${currentOrderData.ovenCount} шт\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.hoodCount > 0) {
+                extrasText += `Вытяжки: ${currentOrderData.hoodCount} шт\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.appliancesCount > 0) {
+                extrasText += `Мелкая техника: ${currentOrderData.appliancesCount} шт\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.farTrip === 'Да') {
+                extrasText += `Дальний выезд: Да\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.pets === 'есть') {
+                extrasText += `Домашние животные: Да\n`;
+                hasExtras = true;
+            }
+            
+            if (hasExtras) {
+                text += `🔧 ДОПОЛНИТЕЛЬНЫЕ УСЛУГИ:\n────────────────────────\n`;
+                text += extrasText + `\n`;
+            }
+            
+            // ОБОРУДОВАНИЕ (только если выбрано)
+            if (currentOrderData.equipment && currentOrderData.equipment !== '—') {
+                text += `🛠 ОБОРУДОВАНИЕ:\n────────────────\n${currentOrderData.equipment}\n\n`;
+            }
+            
+            // ХИМИЯ (только если выбрана)
+            if (currentOrderData.chemistry && currentOrderData.chemistry !== '—') {
+                text += `🧴 ХИМИЯ:\n─────────\n${currentOrderData.chemistry}\n\n`;
+            }
+            
+            // ОПИСАНИЕ РАБОТ (только если есть)
+            if (currentOrderData.worksDescription) {
+                text += `📝 ОПИСАНИЕ РАБОТ:\n─────────────────\n${currentOrderData.worksDescription}\n\n`;
+            }
+            
+            text += `📷 Фото будут прикреплены в чате`;
+            
             resultArea.textContent = text;
         }
 
@@ -1852,18 +1961,50 @@ ${currentOrderData.worksDescription || '—'}
             loadingEl.style.display = 'block';
             
             try {
+                // Форматирование данных для Google Таблиц
+                const sheetData = {
+                    manager: currentOrderData.manager,
+                    orderId: currentOrderData.orderId,
+                    customerName: currentOrderData.customerName,
+                    customerPhone: currentOrderData.customerPhone,
+                    customerAddress: currentOrderData.customerAddress,
+                    customerFlat: currentOrderData.customerFlat || '',
+                    orderDate: currentOrderData.orderDate,
+                    orderTime: currentOrderData.orderTime,
+                    cleaningType: currentOrderData.cleaningType,
+                    area: currentOrderData.area,
+                    roomType: currentOrderData.roomType,
+                    difficulty: currentOrderData.difficulty,
+                    difficultyPercent: currentOrderData.difficultyPercent,
+                    windowsCount: currentOrderData.windowsCount,
+                    windowsType: currentOrderData.windowsType,
+                    cabinetsCount: currentOrderData.cabinetsCount,
+                    fridgeCount: currentOrderData.fridgeCount,
+                    ovenCount: currentOrderData.ovenCount,
+                    hoodCount: currentOrderData.hoodCount,
+                    appliancesCount: currentOrderData.appliancesCount,
+                    farTrip: currentOrderData.farTrip,
+                    pets: currentOrderData.pets,
+                    orderTotal: currentOrderData.orderTotal,
+                    masterPay: currentOrderData.masterPay,
+                    worksDescription: currentOrderData.worksDescription,
+                    equipment: currentOrderData.equipment,
+                    chemistry: currentOrderData.chemistry,
+                    timestamp: new Date().toISOString()
+                };
+                
                 // Отправляем данные в Google Sheets
-                await fetch(GOOGLE_SCRIPT_URL, {
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
                     mode: 'no-cors',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(currentOrderData)
+                    body: JSON.stringify(sheetData)
                 });
                 
                 loadingEl.style.display = 'none';
-                showStatus(`✅ Заявка №${currentOrderData.orderId} сохранена в Google Таблицу!`, 'success');
+                showStatus(`✅ Заявка №${currentOrderData.orderId} сохранена в Google Таблицу! Менеджер: ${currentOrderData.manager}`, 'success');
                 
             } catch (error) {
                 loadingEl.style.display = 'none';
@@ -1888,7 +2029,7 @@ ${currentOrderData.worksDescription || '—'}
                     
                     showStatus(`✅ Заявка №${currentOrderData.orderId} отправлена (альтернативный метод)!`, 'success');
                 } catch (e) {
-                    showStatus('❌ Ошибка отправки в Google Таблицу', 'error');
+                    showStatus('❌ Ошибка отправки в Google Таблицу. Сохраните текст заявки вручную.', 'error');
                 }
             }
         }
