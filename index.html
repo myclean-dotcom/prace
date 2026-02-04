@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Калькулятор стоимости уборки</title>
+    <title>Калькулятор уборки - Расчёт стоимости</title>
     <style>
         * {
             margin: 0;
@@ -29,10 +29,11 @@
         header {
             text-align: center;
             margin-bottom: 40px;
-            padding: 20px;
+            padding: 30px;
             background: white;
             border-radius: 15px;
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-left: 5px solid #2d89ef;
         }
 
         h1 {
@@ -43,7 +44,19 @@
 
         .subtitle {
             color: #666;
-            font-size: 1.2rem;
+            font-size: 1.1rem;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .price-note {
+            background: #fff3cd;
+            border: 1px solid #ffecb5;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 15px;
+            font-size: 0.95rem;
+            color: #856404;
         }
 
         .calculator-container {
@@ -81,6 +94,13 @@
             margin-bottom: 25px;
             padding-bottom: 15px;
             border-bottom: 2px solid #f0f0f0;
+            display: flex;
+            align-items: center;
+        }
+
+        h2 i {
+            margin-right: 10px;
+            font-size: 1.5rem;
         }
 
         .form-group {
@@ -108,14 +128,14 @@
             border-color: #2d89ef;
         }
 
-        .radio-group, .checkbox-group {
+        .radio-group {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
             gap: 15px;
             margin-top: 10px;
         }
 
-        .radio-option, .checkbox-option {
+        .radio-option {
             display: flex;
             align-items: center;
             background: #f9f9f9;
@@ -126,20 +146,20 @@
             border: 2px solid transparent;
         }
 
-        .radio-option:hover, .checkbox-option:hover {
+        .radio-option:hover {
             background: #f0f7ff;
         }
 
-        .radio-option.selected, .checkbox-option.selected {
+        .radio-option.selected {
             background: #e8f4ff;
             border-color: #2d89ef;
         }
 
-        input[type="radio"], input[type="checkbox"] {
+        input[type="radio"] {
             display: none;
         }
 
-        .custom-radio, .custom-checkbox {
+        .custom-radio {
             width: 20px;
             height: 20px;
             border: 2px solid #ccc;
@@ -151,11 +171,7 @@
             transition: all 0.3s;
         }
 
-        .custom-checkbox {
-            border-radius: 4px;
-        }
-
-        .radio-option.selected .custom-radio, .checkbox-option.selected .custom-checkbox {
+        .radio-option.selected .custom-radio {
             border-color: #2d89ef;
             background-color: #2d89ef;
         }
@@ -173,18 +189,7 @@
             display: block;
         }
 
-        .custom-checkbox:after {
-            content: '✓';
-            color: white;
-            font-weight: bold;
-            display: none;
-        }
-
-        .checkbox-option.selected .custom-checkbox:after {
-            display: block;
-        }
-
-        .radio-label, .checkbox-label {
+        .radio-label {
             cursor: pointer;
             flex-grow: 1;
         }
@@ -197,6 +202,11 @@
             font-weight: bold;
             color: #2d89ef;
             font-size: 1.1rem;
+            display: inline-block;
+            background: #f0f7ff;
+            padding: 5px 15px;
+            border-radius: 20px;
+            margin-bottom: 10px;
         }
 
         input[type="range"] {
@@ -218,6 +228,63 @@
             cursor: pointer;
         }
 
+        .inline-fields {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .inline-field {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .inline-field label {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .inline-field input {
+            padding: 10px;
+            font-size: 0.95rem;
+        }
+
+        .difficulty-slider {
+            margin-top: 20px;
+        }
+
+        .difficulty-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .difficulty-label {
+            text-align: center;
+            padding: 5px;
+        }
+
+        .difficulty-label.active {
+            color: #2d89ef;
+            font-weight: 600;
+            background: #f0f7ff;
+            border-radius: 8px;
+        }
+
+        .difficulty-description {
+            margin-top: 15px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            color: #666;
+            border-left: 3px solid #2d89ef;
+        }
+
         .total-price {
             text-align: center;
             margin: 20px 0;
@@ -228,6 +295,12 @@
             font-weight: 700;
             color: #2d89ef;
             margin: 10px 0;
+        }
+
+        .price-min {
+            font-size: 0.9rem;
+            color: #666;
+            margin-top: 5px;
         }
 
         .price-breakdown {
@@ -249,6 +322,9 @@
             font-weight: bold;
             font-size: 1.1rem;
             color: #2d89ef;
+            padding-top: 12px;
+            margin-top: 5px;
+            border-top: 2px solid #eee;
         }
 
         .breakdown-label {
@@ -323,29 +399,30 @@
             margin-bottom: 10px;
         }
 
-        .price-examples {
-            margin-top: 30px;
-        }
-
-        .example-table {
-            width: 100%;
-            border-collapse: collapse;
+        .price-list {
+            list-style: none;
+            padding: 0;
             margin-top: 15px;
         }
 
-        .example-table th, .example-table td {
-            padding: 12px 15px;
-            text-align: left;
+        .price-list li {
+            padding: 8px 0;
             border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
         }
 
-        .example-table th {
-            background: #f5f7fa;
+        .price-list li:last-child {
+            border-bottom: none;
+        }
+
+        .service-name {
+            color: #555;
+        }
+
+        .service-price {
+            color: #2d89ef;
             font-weight: 600;
-        }
-
-        .example-table tr:hover {
-            background: #f9f9f9;
         }
 
         footer {
@@ -356,15 +433,9 @@
             font-size: 0.9rem;
         }
 
-        .discount-badge {
-            background: linear-gradient(135deg, #ff9800, #ff5722);
-            color: white;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-weight: bold;
-            display: inline-block;
-            margin-left: 10px;
-            font-size: 0.9rem;
+        .required-field::after {
+            content: " *";
+            color: #ff4757;
         }
 
         .tooltip {
@@ -399,123 +470,161 @@
             opacity: 1;
         }
     </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🧮 Калькулятор стоимости уборки</h1>
-            <p class="subtitle">Рассчитайте стоимость уборки онлайн за 2 минуты. Цена фиксируется при заказе!</p>
+            <h1><i class="fas fa-calculator"></i> Калькулятор стоимости уборки</h1>
+            <p class="subtitle">Рассчитайте предварительную стоимость уборки онлайн. Цены указаны "от" и являются ориентировочными. Точную стоимость рассчитает менеджер после осмотра помещения.</p>
+            <div class="price-note">
+                <i class="fas fa-info-circle"></i> Все цены указаны без НДС. В стоимость входит: выезд мастеров, работа, химические средства и оборудование.
+            </div>
         </header>
 
         <div class="calculator-container">
             <div class="calculator-form">
-                <h2>Параметры уборки</h2>
+                <h2><i class="fas fa-cog"></i> Параметры уборки</h2>
                 
                 <div class="form-group">
-                    <label for="cleaningType">Тип уборки</label>
+                    <label class="required-field">Тип уборки</label>
                     <div class="radio-group" id="cleaningType">
-                        <div class="radio-option selected" data-value="maintenance">
+                        <div class="radio-option selected" data-value="maintenance" data-price="80">
                             <div class="custom-radio"></div>
-                            <span class="radio-label">Поддерживающая</span>
+                            <span class="radio-label">Поддерживающая<br><small>от 80 руб/м²</small></span>
                         </div>
-                        <div class="radio-option" data-value="general">
+                        <div class="radio-option" data-value="general" data-price="100">
                             <div class="custom-radio"></div>
-                            <span class="radio-label">Генеральная</span>
+                            <span class="radio-label">Генеральная<br><small>от 100 руб/м²</small></span>
                         </div>
-                        <div class="radio-option" data-value="post-renovation">
+                        <div class="radio-option" data-value="post-renovation" data-price="150">
                             <div class="custom-radio"></div>
-                            <span class="radio-label">После ремонта</span>
-                        </div>
-                        <div class="radio-option" data-value="deep">
-                            <div class="custom-radio"></div>
-                            <span class="radio-label">Глубокий клининг</span>
+                            <span class="radio-label">После ремонта<br><small>от 150 руб/м²</small></span>
                         </div>
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <label for="apartmentSize">Площадь помещения (м²)</label>
-                    <input type="range" id="apartmentSize" min="20" max="200" value="60" step="5">
+                    <label class="required-field">Тип помещения</label>
+                    <select id="roomType">
+                        <option value="apartment" selected>Квартира</option>
+                        <option value="office">Офис</option>
+                        <option value="house">Дом</option>
+                        <option value="industrial">Производственное помещение</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="required-field">Площадь помещения (м²)</label>
+                    <input type="range" id="apartmentSize" min="10" max="500" value="60" step="1">
                     <div class="range-container">
                         <span class="range-value" id="sizeValue">60 м²</span>
+                        <input type="number" id="apartmentSizeInput" min="10" max="1000" value="60" step="1" style="width: 100px; padding: 8px;">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Коэффициент сложности</label>
+                    <div class="difficulty-slider">
+                        <input type="range" id="difficulty" min="1" max="10" value="1" step="1">
+                        <div class="difficulty-labels">
+                            <div class="difficulty-label active" data-value="1">1<br><small>Обычная</small></div>
+                            <div class="difficulty-label" data-value="5">5<br><small>+55%</small></div>
+                            <div class="difficulty-label" data-value="10">10<br><small>+100%</small></div>
+                        </div>
+                        <div class="difficulty-description" id="difficultyDescription">
+                            <strong>Уровень 1</strong>: Стандартная уборка, нормальный уровень загрязнения
+                        </div>
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label>Дополнительные услуги</label>
-                    <div class="checkbox-group">
-                        <div class="checkbox-option" data-value="windows">
-                            <div class="custom-checkbox"></div>
-                            <span class="checkbox-label">Мытьё окон <span class="tooltip">?
-                                <span class="tooltip-text">Мойка окон с двух сторон, включая рамы и подоконники</span>
-                            </span></span>
+                    <div class="inline-fields">
+                        <div class="inline-field">
+                            <label>Окна (створки)</label>
+                            <input type="number" id="windowsCount" min="0" value="0" placeholder="Количество">
                         </div>
-                        <div class="checkbox-option" data-value="furniture">
-                            <div class="custom-checkbox"></div>
-                            <span class="checkbox-label">Мытьё шкафов <span class="tooltip">?
-                                <span class="tooltip-text">Чистка шкафов снаружи и внутри</span>
-                            </span></span>
-                        </div>
-                        <div class="checkbox-option" data-value="appliances">
-                            <div class="custom-checkbox"></div>
-                            <span class="checkbox-label">Мытьё техники <span class="tooltip">?
-                                <span class="tooltip-text">Холодильник, плита, духовка, микроволновка</span>
-                            </span></span>
-                        </div>
-                        <div class="checkbox-option" data-value="dusting">
-                            <div class="custom-checkbox"></div>
-                            <span class="checkbox-label">Обеспыливание <span class="tooltip">?
-                                <span class="tooltip-text">Потолок, стены, углы, верхние поверхности</span>
-                            </span></span>
+                        <div class="inline-field">
+                            <label>Тип мойки окон</label>
+                            <select id="windowsType">
+                                <option value="200">С одной стороны (200 руб/створка)</option>
+                                <option value="400">С двух сторон (400 руб/створка)</option>
+                            </select>
                         </div>
                     </div>
-                </div>
 
-                <div class="form-group">
-                    <label for="urgency">Срочность</label>
-                    <div class="radio-group" id="urgency">
-                        <div class="radio-option selected" data-value="normal">
-                            <div class="custom-radio"></div>
-                            <span class="radio-label">Стандартная (3-5 дней)</span>
+                    <div class="inline-fields" style="margin-top: 15px;">
+                        <div class="inline-field">
+                            <label>Шкафы (шт)</label>
+                            <input type="number" id="cabinetsCount" min="0" value="0" placeholder="Количество">
                         </div>
-                        <div class="radio-option" data-value="urgent">
-                            <div class="custom-radio"></div>
-                            <span class="radio-label">Срочная (1-2 дня) <span class="discount-badge">+20%</span></span>
-                        </div>
-                        <div class="radio-option" data-value="express">
-                            <div class="custom-radio"></div>
-                            <span class="radio-label">Экспресс (в течение дня) <span class="discount-badge">+50%</span></span>
+                        <div class="inline-field">
+                            <label>Холодильники (шт)</label>
+                            <input type="number" id="fridgeCount" min="0" value="0" placeholder="Количество">
                         </div>
                     </div>
-                </div>
 
-                <div class="form-group">
-                    <label for="frequency">Регулярность</label>
-                    <select id="frequency">
-                        <option value="1">Разовая уборка</option>
-                        <option value="0.9">Еженедельно (скидка 10%)</option>
-                        <option value="0.85">2 раза в неделю (скидка 15%)</option>
-                        <option value="0.8">Ежедневно (скидка 20%)</option>
-                    </select>
+                    <div class="inline-fields" style="margin-top: 15px;">
+                        <div class="inline-field">
+                            <label>Духовые шкафы (шт)</label>
+                            <input type="number" id="ovenCount" min="0" value="0" placeholder="Количество">
+                        </div>
+                        <div class="inline-field">
+                            <label>Вытяжки (шт)</label>
+                            <input type="number" id="hoodCount" min="0" value="0" placeholder="Количество">
+                        </div>
+                    </div>
+
+                    <div class="inline-fields" style="margin-top: 15px;">
+                        <div class="inline-field">
+                            <label>Чайники/Кофемашины (шт)</label>
+                            <input type="number" id="appliancesCount" min="0" value="0" placeholder="Количество">
+                        </div>
+                        <div class="inline-field">
+                            <label>Обеспыливание потолков</label>
+                            <select id="dustingCeiling">
+                                <option value="0">Нет</option>
+                                <option value="1">Да (от 20 руб/м²)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="inline-fields" style="margin-top: 15px;">
+                        <div class="inline-field">
+                            <label>Обеспыливание стен</label>
+                            <select id="dustingWalls">
+                                <option value="0">Нет</option>
+                                <option value="1">Да (от 20 руб/м²)</option>
+                            </select>
+                        </div>
+                        <div class="inline-field">
+                            <label>Дальний выезд</label>
+                            <select id="farTrip">
+                                <option value="0">Нет</option>
+                                <option value="1000">Да (+1000 руб)</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="buttons">
-                    <button class="btn-calculate" id="calculateBtn">Рассчитать стоимость</button>
-                    <button class="btn-reset" id="resetBtn">Сбросить</button>
+                    <button class="btn-calculate" id="calculateBtn"><i class="fas fa-calculator"></i> Рассчитать стоимость</button>
+                    <button class="btn-reset" id="resetBtn"><i class="fas fa-redo"></i> Сбросить</button>
                 </div>
             </div>
 
             <div class="calculator-result">
-                <h2>Итоговая стоимость</h2>
+                <h2><i class="fas fa-receipt"></i> Итоговая стоимость</h2>
                 <div class="total-price">
-                    <div>Стоимость уборки:</div>
+                    <div>Ориентировочная стоимость:</div>
                     <div class="price" id="totalPrice">0 руб</div>
-                    <div>Цена фиксируется при заказе</div>
+                    <div class="price-min">*Минимальная сумма заказа: 3 500 руб</div>
                 </div>
 
                 <div class="price-breakdown">
                     <div class="breakdown-item">
-                        <span class="breakdown-label">Базовая стоимость:</span>
+                        <span class="breakdown-label">Базовая уборка:</span>
                         <span class="breakdown-value" id="basePrice">0 руб</span>
                     </div>
                     <div class="breakdown-item">
@@ -523,139 +632,208 @@
                         <span class="breakdown-value" id="extraPrice">0 руб</span>
                     </div>
                     <div class="breakdown-item">
-                        <span class="breakdown-label">Срочность:</span>
-                        <span class="breakdown-value" id="urgencyPrice">0 руб</span>
+                        <span class="breakdown-label">Коэффициент сложности:</span>
+                        <span class="breakdown-value" id="difficultyPrice">+0%</span>
                     </div>
                     <div class="breakdown-item">
-                        <span class="breakdown-label">Скидка за регулярность:</span>
-                        <span class="breakdown-value" id="discountPrice">0 руб</span>
+                        <span class="breakdown-label">Дальний выезд:</span>
+                        <span class="breakdown-value" id="tripPrice">0 руб</span>
                     </div>
                     <div class="breakdown-item">
-                        <span class="breakdown-label">Итого:</span>
+                        <span class="breakdown-label">Итоговая стоимость:</span>
                         <span class="breakdown-value" id="finalPrice">0 руб</span>
                     </div>
                 </div>
 
                 <div style="margin-top: 20px; padding: 15px; background: #e8f4ff; border-radius: 8px; font-size: 0.9rem;">
-                    <strong>В стоимость включено:</strong> все моющие средства, оборудование, работа 2 мастеров.
+                    <strong><i class="fas fa-info-circle"></i> Важно:</strong> Это предварительный расчет. Точную стоимость рассчитает менеджер после оценки фото или выезда на объект.
                 </div>
             </div>
         </div>
 
         <div class="info-section">
-            <h2>Тарифы и примеры расчетов</h2>
+            <h2><i class="fas fa-list-alt"></i> Тарифы и услуги</h2>
             <div class="info-grid">
                 <div class="info-card">
-                    <h3>Тарифы за м²</h3>
-                    <ul style="padding-left: 20px; margin-top: 10px;">
-                        <li>Поддерживающая: 50 руб/м²</li>
-                        <li>Генеральная: 80 руб/м²</li>
-                        <li>После ремонта: 120 руб/м²</li>
-                        <li>Глубокий клининг: 150 руб/м²</li>
+                    <h3>Основные типы уборки</h3>
+                    <ul class="price-list">
+                        <li>
+                            <span class="service-name">Поддерживающая</span>
+                            <span class="service-price">от 80 руб/м²</span>
+                        </li>
+                        <li>
+                            <span class="service-name">Генеральная</span>
+                            <span class="service-price">от 100 руб/м²</span>
+                        </li>
+                        <li>
+                            <span class="service-name">После ремонта</span>
+                            <span class="service-price">от 150 руб/м²</span>
+                        </li>
                     </ul>
-                    <p style="margin-top: 10px; font-size: 0.9rem; color: #666;">*Минимальная сумма заказа: 2000 руб.</p>
                 </div>
 
                 <div class="info-card">
                     <h3>Дополнительные услуги</h3>
-                    <ul style="padding-left: 20px; margin-top: 10px;">
-                        <li>Мытьё окон: от 150 руб/створка</li>
-                        <li>Мытьё шкафов: 200-400 руб</li>
-                        <li>Мытьё техники: 200 руб/единица</li>
-                        <li>Обеспыливание: 500-800 руб</li>
+                    <ul class="price-list">
+                        <li>
+                            <span class="service-name">Мытьё окон (1 сторона)</span>
+                            <span class="service-price">от 200 руб/створка</span>
+                        </li>
+                        <li>
+                            <span class="service-name">Мытьё окон (2 стороны)</span>
+                            <span class="service-price">от 400 руб/створка</span>
+                        </li>
+                        <li>
+                            <span class="service-name">Мытьё шкафов</span>
+                            <span class="service-price">от 250 руб/шт</span>
+                        </li>
+                        <li>
+                            <span class="service-name">Холодильник</span>
+                            <span class="service-price">от 600 руб/шт</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="info-card">
+                    <h3>Бытовая техника</h3>
+                    <ul class="price-list">
+                        <li>
+                            <span class="service-name">Духовой шкаф</span>
+                            <span class="service-price">от 500 руб/шт</span>
+                        </li>
+                        <li>
+                            <span class="service-name">Вытяжка</span>
+                            <span class="service-price">от 300 руб/шт</span>
+                        </li>
+                        <li>
+                            <span class="service-name">Чайник/Кофемашина</span>
+                            <span class="service-price">от 100 руб/шт</span>
+                        </li>
+                        <li>
+                            <span class="service-name">Обеспыливание</span>
+                            <span class="service-price">от 20 руб/м²</span>
+                        </li>
                     </ul>
                 </div>
             </div>
 
-            <div class="price-examples">
-                <h3>Примеры расчетов</h3>
-                <table class="example-table">
-                    <thead>
-                        <tr>
-                            <th>Тип уборки</th>
-                            <th>Площадь</th>
-                            <th>Доп. услуги</th>
-                            <th>Стоимость</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>Поддерживающая</td>
-                            <td>60 м²</td>
-                            <td>Без доп. услуг</td>
-                            <td>3 000 руб</td>
-                        </tr>
-                        <tr>
-                            <td>Генеральная</td>
-                            <td>80 м²</td>
-                            <td>Окна + техника</td>
-                            <td>8 500 руб</td>
-                        </tr>
-                        <tr>
-                            <td>После ремонта</td>
-                            <td>100 м²</td>
-                            <td>Все доп. услуги</td>
-                            <td>15 200 руб</td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 10px;">
+                <h3><i class="fas fa-calculator"></i> О коэффициенте сложности</h3>
+                <p>Коэффициент позволяет гибко настроить стоимость в зависимости от:</p>
+                <ul style="margin-top: 10px; padding-left: 20px; columns: 2;">
+                    <li>Степени загрязнения</li>
+                    <li>Количества мебели</li>
+                    <li>Высоты потолков</li>
+                    <li>Сложности доступа</li>
+                    <li>Наличия животных</li>
+                    <li>Особых требований</li>
+                </ul>
             </div>
         </div>
 
         <footer>
-            <p>© 2023 Клининг-сервис "Чистота". Калькулятор стоимости уборки.</p>
-            <p style="margin-top: 5px; font-size: 0.8rem;">Расчет носит предварительный характер. Точная стоимость определяется после осмотра помещения.</p>
+            <p>© 2023 Клининг-сервис. Калькулятор стоимости уборки.</p>
+            <p style="margin-top: 5px; font-size: 0.8rem;">Все цены указаны "от" и являются ориентировочными. Точную стоимость рассчитывает менеджер.</p>
         </footer>
     </div>
 
     <script>
-        // Базовая цена за м² для разных типов уборки
-        const pricePerSqm = {
-            'maintenance': 50,
-            'general': 80,
-            'post-renovation': 120,
-            'deep': 150
-        };
-
-        // Стоимость дополнительных услуг
-        const extraServices = {
-            'windows': 1500,
-            'furniture': 800,
-            'appliances': 1200,
-            'dusting': 700
-        };
-
-        // Коэффициенты срочности
-        const urgencyMultipliers = {
-            'normal': 1,
-            'urgent': 1.2,
-            'express': 1.5
+        // Цены согласно вашим данным
+        const priceConfig = {
+            // Основные типы уборки (руб/м²)
+            cleaningTypes: {
+                'maintenance': 80,      // Поддерживающая
+                'general': 100,         // Генеральная
+                'post-renovation': 150  // После ремонта
+            },
+            
+            // Дополнительные услуги
+            extras: {
+                'windows': {            // Окна
+                    '200': 200,         // С одной стороны
+                    '400': 400          // С двух сторон
+                },
+                'cabinets': 250,        // Шкафы (руб/шт)
+                'fridge': 600,          // Холодильник (руб/шт)
+                'oven': 500,            // Духовой шкаф (руб/шт)
+                'hood': 300,            // Вытяжка (руб/шт)
+                'appliances': 100,      // Чайник/Кофемашина (руб/шт)
+                'dustingCeiling': 20,   // Обеспыливание потолков (руб/м²)
+                'dustingWalls': 20,     // Обеспыливание стен (руб/м²)
+                'farTrip': 1000         // Дальний выезд
+            },
+            
+            // Минимальная сумма заказа
+            minOrder: 3500,
+            
+            // Коэффициент сложности
+            difficulty: {
+                1: 1.0,   // +0%
+                2: 1.1,   // +10%
+                3: 1.2,   // +20%
+                4: 1.3,   // +30%
+                5: 1.55,  // +55% (специально для уровня 5)
+                6: 1.65,  // +65%
+                7: 1.75,  // +75%
+                8: 1.85,  // +85%
+                9: 1.95,  // +95%
+                10: 2.0   // +100%
+            },
+            
+            // Описания для коэффициента сложности
+            difficultyDescriptions: {
+                1: "Стандартная уборка, нормальный уровень загрязнения, обычная планировка",
+                2: "Легкое загрязнение, стандартная меблировка",
+                3: "Среднее загрязнение, наличие домашних животных",
+                4: "Сильное загрязнение, много мебели и предметов",
+                5: "Очень сильное загрязнение, сложная планировка",
+                6: "Загрязнение после строительства, пыль",
+                7: "Сильные загрязнения (жир, плесень), сложный доступ",
+                8: "Очень сложные условия, много нюансов",
+                9: "Экстремальное загрязнение, особые требования",
+                10: "Самые сложные случаи, требует особого подхода"
+            }
         };
 
         // DOM элементы
         const cleaningTypeOptions = document.querySelectorAll('#cleaningType .radio-option');
+        const roomTypeSelect = document.getElementById('roomType');
         const sizeSlider = document.getElementById('apartmentSize');
+        const sizeInput = document.getElementById('apartmentSizeInput');
         const sizeValue = document.getElementById('sizeValue');
-        const extraServiceOptions = document.querySelectorAll('.checkbox-option');
-        const urgencyOptions = document.querySelectorAll('#urgency .radio-option');
-        const frequencySelect = document.getElementById('frequency');
+        const difficultySlider = document.getElementById('difficulty');
+        const difficultyLabels = document.querySelectorAll('.difficulty-label');
+        const difficultyDescription = document.getElementById('difficultyDescription');
+        
+        // Дополнительные услуги
+        const windowsCount = document.getElementById('windowsCount');
+        const windowsType = document.getElementById('windowsType');
+        const cabinetsCount = document.getElementById('cabinetsCount');
+        const fridgeCount = document.getElementById('fridgeCount');
+        const ovenCount = document.getElementById('ovenCount');
+        const hoodCount = document.getElementById('hoodCount');
+        const appliancesCount = document.getElementById('appliancesCount');
+        const dustingCeiling = document.getElementById('dustingCeiling');
+        const dustingWalls = document.getElementById('dustingWalls');
+        const farTrip = document.getElementById('farTrip');
+        
+        // Кнопки
         const calculateBtn = document.getElementById('calculateBtn');
         const resetBtn = document.getElementById('resetBtn');
-
+        
         // Элементы для отображения результатов
         const basePriceEl = document.getElementById('basePrice');
         const extraPriceEl = document.getElementById('extraPrice');
-        const urgencyPriceEl = document.getElementById('urgencyPrice');
-        const discountPriceEl = document.getElementById('discountPrice');
+        const difficultyPriceEl = document.getElementById('difficultyPrice');
+        const tripPriceEl = document.getElementById('tripPrice');
         const finalPriceEl = document.getElementById('finalPrice');
         const totalPriceEl = document.getElementById('totalPrice');
 
         // Текущие значения
         let currentCleaningType = 'maintenance';
         let currentSize = 60;
-        let currentExtraServices = [];
-        let currentUrgency = 'normal';
-        let currentFrequency = 1;
+        let currentDifficulty = 1;
+        let currentRoomType = 'apartment';
 
         // Инициализация
         document.addEventListener('DOMContentLoaded', function() {
@@ -671,48 +849,50 @@
                 });
             });
 
-            // Обработчик для площади
+            // Обработчик для типа помещения
+            roomTypeSelect.addEventListener('change', function() {
+                currentRoomType = this.value;
+                updatePrice();
+            });
+
+            // Обработчик для площади (слайдер)
             sizeSlider.addEventListener('input', function() {
                 currentSize = parseInt(this.value);
+                sizeInput.value = currentSize;
                 sizeValue.textContent = `${currentSize} м²`;
                 updatePrice();
             });
 
-            // Обработчик для дополнительных услуг
-            extraServiceOptions.forEach(option => {
-                option.addEventListener('click', function() {
-                    this.classList.toggle('selected');
-                    const service = this.getAttribute('data-value');
-                    
-                    if (this.classList.contains('selected')) {
-                        if (!currentExtraServices.includes(service)) {
-                            currentExtraServices.push(service);
-                        }
-                    } else {
-                        const index = currentExtraServices.indexOf(service);
-                        if (index > -1) {
-                            currentExtraServices.splice(index, 1);
-                        }
-                    }
-                    
-                    updatePrice();
-                });
-            });
-
-            // Обработчик для срочности
-            urgencyOptions.forEach(option => {
-                option.addEventListener('click', function() {
-                    urgencyOptions.forEach(opt => opt.classList.remove('selected'));
-                    this.classList.add('selected');
-                    currentUrgency = this.getAttribute('data-value');
-                    updatePrice();
-                });
-            });
-
-            // Обработчик для регулярности
-            frequencySelect.addEventListener('change', function() {
-                currentFrequency = parseFloat(this.value);
+            // Обработчик для площади (инпут)
+            sizeInput.addEventListener('input', function() {
+                let value = parseInt(this.value) || 10;
+                if (value < 10) value = 10;
+                if (value > 1000) value = 1000;
+                
+                currentSize = value;
+                sizeSlider.value = value;
+                sizeInput.value = value;
+                sizeValue.textContent = `${value} м²`;
                 updatePrice();
+            });
+
+            // Обработчик для коэффициента сложности
+            difficultySlider.addEventListener('input', function() {
+                currentDifficulty = parseInt(this.value);
+                updateDifficultyLabels();
+                updatePrice();
+            });
+
+            // Обработчики для всех дополнительных услуг
+            const allInputs = [
+                windowsCount, windowsType, cabinetsCount, fridgeCount, 
+                ovenCount, hoodCount, appliancesCount, dustingCeiling, 
+                dustingWalls, farTrip
+            ];
+            
+            allInputs.forEach(input => {
+                input.addEventListener('change', updatePrice);
+                input.addEventListener('input', updatePrice);
             });
 
             // Обработчик кнопки сброса
@@ -722,73 +902,117 @@
                 document.querySelector('#cleaningType .radio-option').classList.add('selected');
                 currentCleaningType = 'maintenance';
                 
+                // Сброс типа помещения
+                roomTypeSelect.value = 'apartment';
+                currentRoomType = 'apartment';
+                
                 // Сброс площади
                 sizeSlider.value = 60;
+                sizeInput.value = 60;
                 currentSize = 60;
                 sizeValue.textContent = '60 м²';
                 
+                // Сброс коэффициента сложности
+                difficultySlider.value = 1;
+                currentDifficulty = 1;
+                updateDifficultyLabels();
+                
                 // Сброс дополнительных услуг
-                extraServiceOptions.forEach(opt => opt.classList.remove('selected'));
-                currentExtraServices = [];
-                
-                // Сброс срочности
-                urgencyOptions.forEach(opt => opt.classList.remove('selected'));
-                document.querySelector('#urgency .radio-option').classList.add('selected');
-                currentUrgency = 'normal';
-                
-                // Сброс регулярности
-                frequencySelect.value = '1';
-                currentFrequency = 1;
+                windowsCount.value = 0;
+                windowsType.value = 200;
+                cabinetsCount.value = 0;
+                fridgeCount.value = 0;
+                ovenCount.value = 0;
+                hoodCount.value = 0;
+                appliancesCount.value = 0;
+                dustingCeiling.value = 0;
+                dustingWalls.value = 0;
+                farTrip.value = 0;
                 
                 updatePrice();
             });
 
-            // Обработчик кнопки расчета (уже работает через updatePrice, но оставим для ясности)
-            calculateBtn.addEventListener('click', updatePrice);
+            // Инициализация меток коэффициента сложности
+            updateDifficultyLabels();
         });
+
+        // Обновление меток коэффициента сложности
+        function updateDifficultyLabels() {
+            difficultyLabels.forEach(label => {
+                const value = parseInt(label.getAttribute('data-value'));
+                label.classList.toggle('active', value === currentDifficulty);
+            });
+            
+            // Обновление описания
+            const percentage = Math.round((priceConfig.difficulty[currentDifficulty] - 1) * 100);
+            difficultyDescription.innerHTML = `
+                <strong>Уровень ${currentDifficulty}</strong>: ${priceConfig.difficultyDescriptions[currentDifficulty]}<br>
+                <small>Наценка: +${percentage}% к стоимости</small>
+            `;
+        }
+
+        // Форматирование чисел с пробелами
+        function formatPrice(price) {
+            return Math.round(price).toLocaleString('ru-RU') + ' руб';
+        }
 
         // Функция расчета и обновления цены
         function updatePrice() {
-            // Базовая стоимость
-            let basePrice = pricePerSqm[currentCleaningType] * currentSize;
-            basePrice = Math.max(basePrice, 2000); // Минимальная цена 2000 руб
+            // 1. Базовая стоимость уборки
+            let basePrice = priceConfig.cleaningTypes[currentCleaningType] * currentSize;
             
-            // Стоимость дополнительных услуг
+            // 2. Дополнительные услуги
             let extraPrice = 0;
-            currentExtraServices.forEach(service => {
-                extraPrice += extraServices[service];
-            });
             
-            // Общая стоимость до учета срочности и скидок
+            // Окна
+            const windowsPrice = parseInt(windowsType.value);
+            extraPrice += (windowsCount.value || 0) * windowsPrice;
+            
+            // Шкафы
+            extraPrice += (cabinetsCount.value || 0) * priceConfig.extras.cabinets;
+            
+            // Бытовая техника
+            extraPrice += (fridgeCount.value || 0) * priceConfig.extras.fridge;
+            extraPrice += (ovenCount.value || 0) * priceConfig.extras.oven;
+            extraPrice += (hoodCount.value || 0) * priceConfig.extras.hood;
+            extraPrice += (appliancesCount.value || 0) * priceConfig.extras.appliances;
+            
+            // Обеспыливание
+            if (dustingCeiling.value === '1') {
+                extraPrice += currentSize * priceConfig.extras.dustingCeiling;
+            }
+            if (dustingWalls.value === '1') {
+                // Для стен берем примерную площадь (высота 2.5м * периметр)
+                const wallsArea = currentSize * 2.5; // Приблизительный расчет
+                extraPrice += wallsArea * priceConfig.extras.dustingWalls;
+            }
+            
+            // Дальний выезд
+            let tripPrice = farTrip.value === '1000' ? priceConfig.extras.farTrip : 0;
+            
+            // 3. Общая стоимость до коэффициента
             let subtotal = basePrice + extraPrice;
             
-            // Надбавка за срочность
-            let urgencyPrice = 0;
-            if (currentUrgency !== 'normal') {
-                urgencyPrice = subtotal * (urgencyMultipliers[currentUrgency] - 1);
-                subtotal += urgencyPrice;
+            // 4. Применяем минимальную сумму заказа
+            if (subtotal < priceConfig.minOrder) {
+                subtotal = priceConfig.minOrder;
             }
             
-            // Скидка за регулярность
-            let discountPrice = 0;
-            if (currentFrequency < 1) {
-                discountPrice = subtotal * (1 - currentFrequency);
-                subtotal -= discountPrice;
-            }
+            // 5. Применяем коэффициент сложности
+            const difficultyMultiplier = priceConfig.difficulty[currentDifficulty];
+            let priceWithDifficulty = subtotal * difficultyMultiplier;
             
-            // Итоговая стоимость
-            let finalPrice = subtotal;
+            // 6. Добавляем дальний выезд (после коэффициента)
+            let finalPrice = priceWithDifficulty + tripPrice;
             
-            // Форматирование чисел с пробелами
-            const formatPrice = (price) => {
-                return Math.round(price).toLocaleString('ru-RU') + ' руб';
-            };
-            
-            // Обновление интерфейса
+            // 7. Форматируем и отображаем
             basePriceEl.textContent = formatPrice(basePrice);
             extraPriceEl.textContent = formatPrice(extraPrice);
-            urgencyPriceEl.textContent = formatPrice(urgencyPrice);
-            discountPriceEl.textContent = formatPrice(discountPrice);
+            
+            const difficultyPercentage = Math.round((difficultyMultiplier - 1) * 100);
+            difficultyPriceEl.textContent = `+${difficultyPercentage}%`;
+            
+            tripPriceEl.textContent = formatPrice(tripPrice);
             finalPriceEl.textContent = formatPrice(finalPrice);
             totalPriceEl.textContent = formatPrice(finalPrice);
         }
