@@ -1,0 +1,844 @@
+// script.js - Основная логика системы с вашими настройками
+// =============== ОСНОВНОЙ КОД СИСТЕМЫ ===============
+
+// ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
+let currentStep = 1;
+let currentOrder = null;
+let selectedCity = null;
+let calculatedPrice = 0;
+let orderId = null;
+
+// DOM ЭЛЕМЕНТЫ
+let elements = {};
+
+// ИНИЦИАЛИЗАЦИЯ
+document.addEventListener('DOMContentLoaded', function() {
+    initializeElements();
+    initializeSystem();
+    setupEventListeners();
+    updateDateTime();
+    setInterval(updateDateTime, 60000); // Обновлять время каждую минуту
+});
+
+// ИНИЦИАЛИЗАЦИЯ DOM ЭЛЕМЕНТОВ
+function initializeElements() {
+    // Панели
+    elements.panels = {
+        calculator: document.getElementById('calculatorPanel'),
+        data: document.getElementById('dataPanel'),
+        publish: document.getElementById('publishPanel')
+    };
+    
+    // Шаги
+    elements.steps = document.querySelectorAll('.step');
+    
+    // Кнопки навигации
+    elements.nextToData = document.getElementById('nextToData');
+    elements.nextToPublish = document.getElementById('nextToPublish');
+    elements.prevToCalc = document.getElementById('prevToCalc');
+    elements.prevToData = document.getElementById('prevToData');
+    
+    // Форма калькулятора
+    elements.citiesGrid = document.getElementById('citiesGrid');
+    elements.serviceCards = document.querySelectorAll('.service-card');
+    elements.areaSize = document.getElementById('areaSize');
+    elements.areaSlider = document.getElementById('areaSlider');
+    elements.roomType = document.getElementById('roomType');
+    elements.difficultySlider = document.getElementById('difficultySlider');
+    elements.difficultyValue = document.getElementById('difficultyValue');
+    elements.difficultyPercent = document.getElementById('difficultyPercent');
+    
+    // Дополнительные услуги
+    elements.windowsCount = document.getElementById('windowsCount');
+    elements.cabinetsCount = document.getElementById('cabinetsCount');
+    elements.fridgeCount = document.getElementById('fridgeCount');
+    elements.ovenCount = document.getElementById('ovenCount');
+    elements.hoodCount = document.getElementById('hoodCount');
+    elements.appliancesCount = document.getElementById('appliancesCount');
+    elements.farTrip = document.getElementById('farTrip');
+    elements.hasPets = document.getElementById('hasPets');
+    
+    // Счетчики
+    elements.counterButtons = document.querySelectorAll('.btn-counter');
+    
+    // Результат расчета
+    elements.basePrice = document.getElementById('basePrice');
+    elements.extraPrice = document.getElementById('extraPrice');
+    elements.difficultyAdd = document.getElementById('difficultyAdd');
+    elements.totalPrice = document.getElementById('totalPrice');
+    elements.refreshCalc = document.getElementById('refreshCalc');
+    
+    // Форма данных
+    elements.customerName = document.getElementById('customerName');
+    elements.customerPhone = document.getElementById('customerPhone');
+    elements.customerStreet = document.getElementById('customerStreet');
+    elements.customerFlat = document.getElementById('customerFlat');
+    elements.orderDate = document.getElementById('orderDate');
+    elements.orderTime = document.getElementById('orderTime');
+    elements.orderTotal = document.getElementById('orderTotal');
+    elements.masterPay = document.getElementById('masterPay');
+    elements.paymentButtons = document.querySelectorAll('.btn-payment-option');
+    elements.quickDateButtons = document.querySelectorAll('.btn-quick-date');
+    elements.worksDescription = document.getElementById('worksDescription');
+    elements.charCount = document.getElementById('charCount');
+    elements.equipmentTags = document.getElementById('equipmentTags');
+    elements.chemistryTags = document.getElementById('chemistryTags');
+    
+    // Публикация
+    elements.previewOrderId = document.getElementById('previewOrderId');
+    elements.previewCity = document.getElementById('previewCity');
+    elements.previewType = document.getElementById('previewType');
+    elements.previewArea = document.getElementById('previewArea');
+    elements.previewPrice = document.getElementById('previewPrice');
+    elements.previewDate = document.getElementById('previewDate');
+    elements.previewChannel = document.getElementById('previewChannel');
+    
+    elements.statusSection = document.getElementById('statusSection');
+    elements.statusMessage = document.getElementById('statusMessage');
+    elements.resultCard = document.getElementById('resultCard');
+    elements.errorCard = document.getElementById('errorCard');
+    elements.actionButtons = document.getElementById('actionButtons');
+    
+    elements.btnPublish = document.getElementById('btnPublish');
+    elements.btnCopyOrder = document.getElementById('btnCopyOrder');
+    elements.btnTelegram = document.getElementById('btnTelegram');
+    elements.btnRetry = document.getElementById('btnRetry');
+    
+    elements.resultOrderId = document.getElementById('resultOrderId');
+    elements.resultCity = document.getElementById('resultCity');
+    elements.resultChannelLink = document.getElementById('resultChannelLink');
+    elements.errorMessage = document.getElementById('errorMessage');
+    
+    // Время и дата
+    elements.currentTime = document.getElementById('currentTime');
+    elements.currentDate = document.getElementById('currentDate');
+    
+    // Менеджер
+    elements.managerName = document.getElementById('managerName');
+}
+
+// ИНИЦИАЛИЗАЦИЯ СИСТЕМЫ
+function initializeSystem() {
+    // Заполняем города (только Новосибирск)
+    renderCities();
+    
+    // Заполняем оборудование и химию
+    renderEquipmentTags();
+    renderChemistryTags();
+    
+    // Устанавливаем дату по умолчанию (завтра)
+    setDefaultDateTime();
+    
+    // Устанавливаем обработчик маски телефона
+    setupPhoneMask();
+    
+    // Рассчитываем начальную стоимость
+    calculatePrice();
+    
+    // Обновляем предпросмотр
+    updatePreview();
+    
+    // Выбираем Новосибирск по умолчанию
+    selectDefaultCity();
+}
+
+// ВЫБРАТЬ НОВОСИБИРСК ПО УМОЛЧАНИЮ
+function selectDefaultCity() {
+    const novosibirsk = CONFIG.CITIES.find(city => city.name === 'Новосибирск');
+    if (novosibirsk) {
+        selectCity(novosibirsk);
+    }
+}
+
+// ОТОБРАЖЕНИЕ ГОРОДОВ
+function renderCities() {
+    elements.citiesGrid.innerHTML = '';
+    
+    CONFIG.CITIES.forEach(city => {
+        const cityCard = document.createElement('div');
+        cityCard.className = 'city-card';
+        cityCard.innerHTML = `
+            <div class="city-icon" style="background: ${city.color}">
+                <i class="fas ${city.icon}"></i>
+            </div>
+            <div class="city-name">${city.name}</div>
+            <div class="city-channel">${city.channel}</div>
+        `;
+        
+        cityCard.addEventListener('click', () => {
+            selectCity(city);
+            updatePreview();
+        });
+        
+        elements.citiesGrid.appendChild(cityCard);
+    });
+}
+
+// ВЫБОР ГОРОДА
+function selectCity(city) {
+    // Снимаем выделение со всех городов
+    document.querySelectorAll('.city-card').forEach(card => {
+        card.classList.remove('selected');
+    });
+    
+    // Находим и выделяем выбранный город
+    const cityCards = document.querySelectorAll('.city-card');
+    cityCards.forEach(card => {
+        if (card.querySelector('.city-name').textContent === city.name) {
+            card.classList.add('selected');
+        }
+    });
+    
+    selectedCity = city;
+    
+    // Показываем уведомление
+    showNotification(`Выбран город: ${city.name}`, 'info');
+}
+
+// ОТОБРАЖЕНИЕ ТЕГОВ ОБОРУДОВАНИЯ
+function renderEquipmentTags() {
+    elements.equipmentTags.innerHTML = '';
+    
+    CONFIG.EQUIPMENT.forEach(item => {
+        const tag = createTag(item, 'equipment');
+        elements.equipmentTags.appendChild(tag);
+    });
+}
+
+// ОТОБРАЖЕНИЕ ТЕГОВ ХИМИИ
+function renderChemistryTags() {
+    elements.chemistryTags.innerHTML = '';
+    
+    CONFIG.CHEMISTRY.forEach(item => {
+        const tag = createTag(item, 'chemistry');
+        elements.chemistryTags.appendChild(tag);
+    });
+}
+
+// СОЗДАНИЕ ТЕГА
+function createTag(text, type) {
+    const tag = document.createElement('div');
+    tag.className = 'equipment-tag';
+    tag.innerHTML = `
+        <i class="fas fa-${type === 'equipment' ? 'toolbox' : 'flask'}"></i>
+        <span>${text}</span>
+    `;
+    
+    tag.addEventListener('click', function() {
+        this.classList.toggle('selected');
+    });
+    
+    return tag;
+}
+
+// ВЫБОР КАРТОЧКИ УСЛУГИ
+function selectServiceCard(card) {
+    // Снимаем выделение со всех карточек
+    elements.serviceCards.forEach(c => c.classList.remove('selected'));
+    
+    // Выделяем выбранную карточку
+    card.classList.add('selected');
+    
+    calculatePrice();
+    updatePreview();
+}
+
+// ОБНОВЛЕНИЕ ОТОБРАЖЕНИЯ СЛОЖНОСТИ
+function updateDifficultyDisplay() {
+    const level = parseInt(elements.difficultySlider.value);
+    const multiplier = CONFIG.PRICES.difficulty[level];
+    const percent = Math.round((multiplier - 1) * 100);
+    
+    elements.difficultyValue.textContent = level;
+    elements.difficultyPercent.textContent = `+${percent}%`;
+    
+    // Выделяем соответствующую точку на шкале
+    document.querySelectorAll('.scale-point').forEach(point => {
+        point.classList.toggle('active', 
+            parseInt(point.getAttribute('data-level')) === level
+        );
+    });
+}
+
+// РАСЧЕТ СТОИМОСТИ
+function calculatePrice() {
+    // Получаем выбранный тип уборки
+    const selectedCard = document.querySelector('.service-card.selected');
+    if (!selectedCard) return;
+    
+    const cleaningType = selectedCard.getAttribute('data-type');
+    const basePricePerM2 = parseInt(selectedCard.getAttribute('data-price'));
+    
+    // Параметры
+    const area = parseInt(elements.areaSize.value) || 10;
+    const difficultyLevel = parseInt(elements.difficultySlider.value);
+    const difficultyMultiplier = CONFIG.PRICES.difficulty[difficultyLevel];
+    
+    // Базовая стоимость
+    let basePrice = basePricePerM2 * area;
+    
+    // Дополнительные услуги
+    let extraPrice = 0;
+    extraPrice += (parseInt(elements.windowsCount.value) || 0) * CONFIG.PRICES.extras.windows;
+    extraPrice += (parseInt(elements.cabinetsCount.value) || 0) * CONFIG.PRICES.extras.cabinets;
+    extraPrice += (parseInt(elements.fridgeCount.value) || 0) * CONFIG.PRICES.extras.fridge;
+    extraPrice += (parseInt(elements.ovenCount.value) || 0) * CONFIG.PRICES.extras.oven;
+    extraPrice += (parseInt(elements.hoodCount.value) || 0) * CONFIG.PRICES.extras.hood;
+    extraPrice += (parseInt(elements.appliancesCount.value) || 0) * CONFIG.PRICES.extras.appliances;
+    
+    if (elements.farTrip.checked) {
+        extraPrice += CONFIG.PRICES.extras.farTrip;
+    }
+    
+    // Итог до применения сложности
+    let subtotal = basePrice + extraPrice;
+    
+    // Минимальная сумма
+    if (subtotal < CONFIG.PRICES.minOrder) {
+        subtotal = CONFIG.PRICES.minOrder;
+    }
+    
+    // Применяем коэффициент сложности
+    let finalPrice = subtotal * difficultyMultiplier;
+    
+    // Округляем до целых
+    calculatedPrice = Math.round(finalPrice);
+    
+    // Заполняем поле суммы
+    elements.orderTotal.value = calculatedPrice.toLocaleString('ru-RU') + ' ₽';
+    
+    // Обновляем зарплату мастера (если выбран процент)
+    const activePayment = document.querySelector('.btn-payment-option.active');
+    if (activePayment && activePayment.getAttribute('data-percent') !== 'fixed') {
+        const percent = parseInt(activePayment.getAttribute('data-percent'));
+        const masterPay = Math.round(calculatedPrice * (percent / 100));
+        elements.masterPay.value = masterPay;
+    }
+    
+    // Отображаем разбивку
+    displayPriceBreakdown(basePrice, extraPrice, difficultyMultiplier, finalPrice);
+}
+
+// ОТОБРАЖЕНИЕ РАЗБИВКИ СТОИМОСТИ
+function displayPriceBreakdown(basePrice, extraPrice, difficultyMultiplier, finalPrice) {
+    const difficultyPercent = Math.round((difficultyMultiplier - 1) * 100);
+    const difficultyAdd = Math.round(finalPrice - (basePrice + extraPrice));
+    
+    elements.basePrice.textContent = formatPrice(basePrice);
+    elements.extraPrice.textContent = formatPrice(extraPrice);
+    elements.difficultyAdd.textContent = `+${difficultyPercent}% (${formatPrice(difficultyAdd)})`;
+    elements.totalPrice.textContent = formatPrice(finalPrice);
+}
+
+// ФОРМАТИРОВАНИЕ ЦЕНЫ
+function formatPrice(price) {
+    return Math.round(price).toLocaleString('ru-RU') + ' ₽';
+}
+
+// УСТАНОВКА ДАТЫ ПО УМОЛЧАНИЮ
+function setDefaultDateTime() {
+    const now = new Date();
+    
+    // Завтрашняя дата
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    // Форматируем дату в YYYY-MM-DD
+    const year = tomorrow.getFullYear();
+    const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const day = String(tomorrow.getDate()).padStart(2, '0');
+    
+    elements.orderDate.value = `${year}-${month}-${day}`;
+    
+    // Время по умолчанию: 10:00
+    elements.orderTime.value = '10:00';
+}
+
+// УСТАНОВКА БУДУЩЕЙ ДАТЫ
+function setFutureDate(days) {
+    const now = new Date();
+    const futureDate = new Date(now);
+    futureDate.setDate(futureDate.getDate() + days);
+    
+    const year = futureDate.getFullYear();
+    const month = String(futureDate.getMonth() + 1).padStart(2, '0');
+    const day = String(futureDate.getDate()).padStart(2, '0');
+    
+    elements.orderDate.value = `${year}-${month}-${day}`;
+    updatePreview();
+}
+
+// ОБНОВЛЕНИЕ ВРЕМЕНИ И ДАТЫ В ШАПКЕ
+function updateDateTime() {
+    const now = new Date();
+    
+    // Время
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    elements.currentTime.textContent = `${hours}:${minutes}`;
+    
+    // Дата
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    elements.currentDate.textContent = `${day}.${month}.${year}`;
+}
+
+// НАСТРОЙКА МАСКИ ТЕЛЕФОНА
+function setupPhoneMask() {
+    elements.customerPhone.addEventListener('input', function(e) {
+        let value = this.value.replace(/\D/g, '');
+        
+        if (value.length > 0) {
+            if (value[0] === '7' || value[0] === '8') {
+                value = value.substring(1);
+            }
+            
+            let formatted = '+7 (';
+            
+            if (value.length > 0) {
+                formatted += value.substring(0, 3);
+            }
+            if (value.length > 3) {
+                formatted += ') ' + value.substring(3, 6);
+            }
+            if (value.length > 6) {
+                formatted += '-' + value.substring(6, 8);
+            }
+            if (value.length > 8) {
+                formatted += '-' + value.substring(8, 10);
+            }
+            
+            this.value = formatted;
+        }
+    });
+}
+
+// ПЕРЕХОД МЕЖДУ ШАГАМИ
+function goToStep(step) {
+    // Валидация перед переходом
+    if (step === 2 && !validateCalculatorStep()) {
+        return;
+    }
+    
+    if (step === 3 && !validateDataStep()) {
+        return;
+    }
+    
+    // Обновляем шаги
+    elements.steps.forEach(s => {
+        s.classList.toggle('active', parseInt(s.getAttribute('data-step')) === step);
+        s.classList.toggle('completed', parseInt(s.getAttribute('data-step')) < step);
+    });
+    
+    // Переключаем панели
+    Object.keys(elements.panels).forEach((key, index) => {
+        elements.panels[key].classList.toggle('active', (index + 1) === step);
+    });
+    
+    currentStep = step;
+    
+    // Обновляем предпросмотр на шаге 3
+    if (step === 3) {
+        updatePreview();
+    }
+    
+    // Прокрутка к верху
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ВАЛИДАЦИЯ ШАГА 1 (КАЛЬКУЛЯТОР)
+function validateCalculatorStep() {
+    if (!selectedCity) {
+        showNotification('Пожалуйста, выберите город', 'error');
+        return false;
+    }
+    
+    if (!document.querySelector('.service-card.selected')) {
+        showNotification('Пожалуйста, выберите тип уборки', 'error');
+        return false;
+    }
+    
+    const area = parseInt(elements.areaSize.value);
+    if (!area || area < 10 || area > 1000) {
+        showNotification('Пожалуйста, укажите корректную площадь (10-1000 м²)', 'error');
+        elements.areaSize.focus();
+        return false;
+    }
+    
+    return true;
+}
+
+// ВАЛИДАЦИЯ ШАГА 2 (ДАННЫЕ КЛИЕНТА)
+function validateDataStep() {
+    // Проверка менеджера
+    const manager = elements.managerName.value.trim();
+    if (!manager || manager.length < 2) {
+        showNotification('Пожалуйста, укажите имя менеджера', 'error');
+        elements.managerName.focus();
+        return false;
+    }
+    
+    // Проверка данных клиента
+    if (!elements.customerName.value.trim()) {
+        showNotification('Пожалуйста, укажите ФИО клиента', 'error');
+        elements.customerName.focus();
+        return false;
+    }
+    
+    const phone = elements.customerPhone.value.replace(/\D/g, '');
+    if (phone.length < 10) {
+        showNotification('Пожалуйста, укажите корректный номер телефона', 'error');
+        elements.customerPhone.focus();
+        return false;
+    }
+    
+    if (!elements.customerStreet.value.trim()) {
+        showNotification('Пожалуйста, укажите адрес уборки', 'error');
+        elements.customerStreet.focus();
+        return false;
+    }
+    
+    return true;
+}
+
+// ОБНОВЛЕНИЕ ПРЕДПРОСМОТРА
+function updatePreview() {
+    if (currentStep < 3) return;
+    
+    // Генерируем ID заявки
+    if (!orderId) {
+        orderId = 'CLN-' + Date.now().toString().slice(-8) + '-' + 
+                 Math.random().toString(36).substr(2, 4).toUpperCase();
+    }
+    
+    // Обновляем данные
+    elements.previewOrderId.textContent = orderId;
+    elements.previewCity.textContent = selectedCity ? selectedCity.name : 'Не выбран';
+    elements.previewChannel.textContent = selectedCity ? selectedCity.channel : '—';
+    
+    // Тип уборки
+    const selectedCard = document.querySelector('.service-card.selected');
+    elements.previewType.textContent = selectedCard ? 
+        selectedCard.getAttribute('data-type') : 'Не выбран';
+    
+    // Площадь
+    elements.previewArea.textContent = `${elements.areaSize.value} м²`;
+    
+    // Стоимость
+    elements.previewPrice.textContent = formatPrice(calculatedPrice);
+    
+    // Дата и время
+    const date = elements.orderDate.value;
+    const time = elements.orderTime.value;
+    
+    if (date) {
+        const [year, month, day] = date.split('-');
+        elements.previewDate.textContent = `${day}.${month}.${year} ${time || ''}`;
+    } else {
+        elements.previewDate.textContent = 'Не указана';
+    }
+}
+
+// СОЗДАНИЕ ЗАЯВКИ
+async function createOrder() {
+    // Скрываем кнопки и показываем статус
+    elements.actionButtons.classList.add('hidden');
+    elements.statusMessage.classList.remove('hidden');
+    elements.resultCard.classList.add('hidden');
+    elements.errorCard.classList.add('hidden');
+    
+    // Собираем данные
+    const orderData = collectOrderData();
+    
+    try {
+        // Отправляем в Google Apps Script
+        const result = await sendOrderToServer(orderData);
+        
+        if (result.success) {
+            // Показываем успех
+            showSuccessResult(result);
+            
+            // Копируем данные в буфер
+            setTimeout(copyOrderData, 1000);
+            
+        } else {
+            throw new Error(result.error || 'Неизвестная ошибка');
+        }
+        
+    } catch (error) {
+        // Показываем ошибку
+        showError(error.message);
+    }
+}
+
+// СОБИРАЕМ ДАННЫЕ ЗАЯВКИ
+function collectOrderData() {
+    // Выбранное оборудование
+    const selectedEquipment = Array.from(
+        document.querySelectorAll('#equipmentTags .equipment-tag.selected')
+    ).map(tag => tag.querySelector('span').textContent);
+    
+    // Выбранная химия
+    const selectedChemistry = Array.from(
+        document.querySelectorAll('#chemistryTags .equipment-tag.selected')
+    ).map(tag => tag.querySelector('span').textContent);
+    
+    // Дата в формате ДД.ММ.ГГГГ
+    const date = elements.orderDate.value;
+    let formattedDate = '';
+    if (date) {
+        const [year, month, day] = date.split('-');
+        formattedDate = `${day}.${month}.${year}`;
+    }
+    
+    return {
+        // Системные данные
+        action: 'create_order',
+        order_id: orderId,
+        timestamp: new Date().toISOString(),
+        secret_key: CONFIG.SECRET_KEY,
+        
+        // Данные менеджера
+        manager: elements.managerName.value.trim(),
+        
+        // Данные клиента
+        customer_name: elements.customerName.value.trim(),
+        customer_phone: elements.customerPhone.value.trim(),
+        customer_address: `${elements.customerStreet.value.trim()}${elements.customerFlat.value ? ', ' + elements.customerFlat.value.trim() : ''}`,
+        customer_flat: elements.customerFlat.value.trim(),
+        
+        // Город
+        city: selectedCity.name,
+        city_id: selectedCity.id,
+        telegram_channel: selectedCity.channel,
+        
+        // Параметры уборки
+        cleaning_type: document.querySelector('.service-card.selected').getAttribute('data-type'),
+        area: parseInt(elements.areaSize.value),
+        room_type: elements.roomType.value,
+        difficulty: parseInt(elements.difficultySlider.value),
+        has_pets: elements.hasPets.checked,
+        
+        // Дополнительные услуги
+        windows_count: parseInt(elements.windowsCount.value) || 0,
+        cabinets_count: parseInt(elements.cabinetsCount.value) || 0,
+        fridge_count: parseInt(elements.fridgeCount.value) || 0,
+        oven_count: parseInt(elements.ovenCount.value) || 0,
+        hood_count: parseInt(elements.hoodCount.value) || 0,
+        appliances_count: parseInt(elements.appliancesCount.value) || 0,
+        far_trip: elements.farTrip.checked,
+        
+        // Финансы
+        total_price: calculatedPrice,
+        master_pay: elements.masterPay.value || '0',
+        master_pay_type: document.querySelector('.btn-payment-option.active').getAttribute('data-percent'),
+        
+        // Оборудование и химия
+        equipment: selectedEquipment.join(', ') || '—',
+        chemistry: selectedChemistry.join(', ') || '—',
+        
+        // Время и описание
+        order_date: formattedDate,
+        order_time: elements.orderTime.value,
+        works_description: elements.worksDescription.value.trim(),
+        
+        // Статус
+        status: 'Новая'
+    };
+}
+
+// ОТПРАВКА НА СЕРВЕР
+async function sendOrderToServer(orderData) {
+    try {
+        const response = await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(orderData)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        return result;
+        
+    } catch (error) {
+        console.error('Ошибка отправки:', error);
+        
+        // Пробуем альтернативный метод через GET
+        return await sendOrderToServerAlternative(orderData);
+    }
+}
+
+// АЛЬТЕРНАТИВНЫЙ МЕТОД ОТПРАВКИ (GET)
+async function sendOrderToServerAlternative(orderData) {
+    try {
+        // Преобразуем данные в параметры URL
+        const params = new URLSearchParams();
+        for (const key in orderData) {
+            params.append(key, orderData[key]);
+        }
+        
+        const url = `${CONFIG.GOOGLE_SCRIPT_URL}?${params.toString()}`;
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const text = await response.text();
+        
+        // Пытаемся распарсить JSON
+        try {
+            return JSON.parse(text);
+        } catch {
+            return { success: true, message: 'Заявка отправлена' };
+        }
+        
+    } catch (error) {
+        console.error('Ошибка альтернативного метода:', error);
+        throw error;
+    }
+}
+
+// ПОКАЗАТЬ УСПЕШНЫЙ РЕЗУЛЬТАТ
+function showSuccessResult(result) {
+    // Обновляем данные в карточке результата
+    elements.resultOrderId.textContent = orderId;
+    elements.resultCity.textContent = selectedCity.name;
+    
+    if (result.telegram_link) {
+        elements.resultChannelLink.href = result.telegram_link;
+        elements.btnTelegram.href = result.telegram_link;
+    }
+    
+    // Переключаем отображение
+    elements.statusMessage.classList.add('hidden');
+    elements.resultCard.classList.remove('hidden');
+    
+    // Показываем уведомление
+    showNotification(`Заявка ${orderId} успешно создана!`, 'success');
+}
+
+// ПОКАЗАТЬ ОШИБКУ
+function showError(message) {
+    elements.errorMessage.textContent = message;
+    
+    elements.statusMessage.classList.add('hidden');
+    elements.errorCard.classList.remove('hidden');
+    
+    showNotification(`Ошибка: ${message}`, 'error');
+}
+
+// КОПИРОВАНИЕ ДАННЫХ ЗАЯВКИ
+function copyOrderData() {
+    const orderData = collectOrderData();
+    
+    // Форматируем текст для копирования
+    let text = `🧹 ЗАЯВКА НА УБОРКУ №${orderData.order_id}\n`;
+    text += `═══════════════════════════\n\n`;
+    text += `📋 ОБЩАЯ ИНФОРМАЦИЯ:\n`;
+    text += `Менеджер: ${orderData.manager}\n`;
+    text += `Город: ${orderData.city}\n`;
+    text += `Тип уборки: ${orderData.cleaning_type}\n`;
+    text += `Площадь: ${orderData.area} м²\n`;
+    text += `Стоимость: ${orderData.total_price.toLocaleString('ru-RU')} ₽\n`;
+    text += `Дата: ${orderData.order_date} ${orderData.order_time}\n\n`;
+    
+    text += `👤 ДАННЫЕ КЛИЕНТА:\n`;
+    text += `Имя: ${orderData.customer_name}\n`;
+    text += `Телефон: ${orderData.customer_phone}\n`;
+    text += `Адрес: ${orderData.customer_address}\n\n`;
+    
+    text += `🔗 Ссылка на заявку в Telegram: ${elements.resultChannelLink.href || '—'}\n`;
+    text += `⏰ Создана: ${new Date().toLocaleString('ru-RU')}`;
+    
+    // Копируем в буфер обмена
+    navigator.clipboard.writeText(text)
+        .then(() => {
+            showNotification('Данные заявки скопированы в буфер обмена!', 'success');
+        })
+        .catch(err => {
+            console.error('Ошибка копирования:', err);
+            showNotification('Не удалось скопировать данные', 'error');
+        });
+}
+
+// ПОКАЗАТЬ УВЕДОМЛЕНИЕ
+function showNotification(message, type = 'info') {
+    // Создаем уведомление
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.innerHTML = `
+        <i class="fas fa-${getNotificationIcon(type)}"></i>
+        <span>${message}</span>
+    `;
+    
+    // Добавляем стили
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${getNotificationColor(type)};
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        z-index: 1000;
+        animation: slideIn 0.3s ease;
+        max-width: 400px;
+    `;
+    
+    // Анимация
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideOut {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
+        }
+    `;
+    document.head.appendChild(style);
+    
+    // Добавляем на страницу
+    document.body.appendChild(notification);
+    
+    // Удаляем через 5 секунд
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => {
+            notification.remove();
+            style.remove();
+        }, 300);
+    }, 5000);
+}
+
+// ПОЛУЧИТЬ ИКОНКУ ДЛЯ УВЕДОМЛЕНИЯ
+function getNotificationIcon(type) {
+    switch(type) {
+        case 'success': return 'check-circle';
+        case 'error': return 'times-circle';
+        case 'warning': return 'exclamation-triangle';
+        default: return 'info-circle';
+    }
+}
+
+// ПОЛУЧИТЬ ЦВЕТ ДЛЯ УВЕДОМЛЕНИЯ
+function getNotificationColor(type) {
+    switch(type) {
+        case 'success': return 'linear-gradient(135deg, #4cc9f0 0%, #4361ee 100%)';
+        case 'error': return 'linear-gradient(135deg, #f72585 0%, #b5179e 100%)';
+        case 'warning': return 'linear-gradient(135deg, #f8961e 0%, #e76f51 100%)';
+        default: return 'linear-gradient(135deg, #6c757d 0%, #495057 100%)';
+    }
+}
