@@ -298,14 +298,33 @@
             margin-bottom: 10px;
         }
 
+        .difficulty-slider-wrapper {
+            position: relative;
+            margin: 20px 0;
+            padding: 0 12px;
+        }
+
+        .difficulty-slider-track {
+            position: absolute;
+            top: 50%;
+            left: 12px;
+            right: 12px;
+            height: 8px;
+            background: linear-gradient(to right, #4CAF50, #8BC34A, #FFC107, #FF9800, #f44336);
+            border-radius: 4px;
+            transform: translateY(-50%);
+            z-index: 1;
+        }
+
         input[type="range"] {
             -webkit-appearance: none;
             width: 100%;
-            height: 8px;
-            border-radius: 4px;
-            background: linear-gradient(to right, #4CAF50, #8BC34A, #FFC107, #FF9800, #f44336);
+            height: 24px;
+            background: transparent;
             outline: none;
-            margin: 10px 0;
+            position: relative;
+            z-index: 2;
+            margin: 0;
         }
 
         input[type="range"]::-webkit-slider-thumb {
@@ -317,14 +336,30 @@
             cursor: pointer;
             border: 3px solid white;
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            position: relative;
+            z-index: 3;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #2d89ef;
+            cursor: pointer;
+            border: 3px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            position: relative;
+            z-index: 3;
         }
 
         .difficulty-labels {
             display: flex;
             justify-content: space-between;
-            margin-top: 10px;
+            margin-top: 15px;
             font-size: 0.85rem;
             color: #666;
+            position: relative;
+            z-index: 1;
         }
 
         .difficulty-label {
@@ -334,7 +369,8 @@
             border-radius: 6px;
             transition: all 0.3s;
             flex: 1;
-            max-width: 60px;
+            max-width: 30px;
+            position: relative;
         }
 
         .difficulty-label:hover {
@@ -949,7 +985,11 @@
                     
                     <div class="difficulty-slider-container">
                         <div class="difficulty-value" id="difficultyValue">Уровень 1: Стандартная уборка (+0%)</div>
-                        <input type="range" id="difficultySlider" min="1" max="10" value="1" step="1">
+                        
+                        <div class="difficulty-slider-wrapper">
+                            <div class="difficulty-slider-track"></div>
+                            <input type="range" id="difficultySlider" min="1" max="10" value="1" step="1">
+                        </div>
                         
                         <div class="difficulty-labels">
                             <div class="difficulty-label active" data-level="1">1</div>
@@ -1423,7 +1463,17 @@
 
             areaSizeInput.addEventListener('input', calculatePrice);
             roomTypeSelect.addEventListener('change', calculatePrice);
-            difficultySlider.addEventListener('input', updateDifficultyDisplay);
+            
+            // Улучшенный обработчик для ползунка сложности
+            difficultySlider.addEventListener('input', function() {
+                updateDifficultyDisplay();
+                calculatePrice();
+            });
+            
+            difficultySlider.addEventListener('change', function() {
+                updateDifficultyDisplay();
+                calculatePrice();
+            });
             
             // Обработчики для меток сложности
             difficultyLabels.forEach(label => {
@@ -1523,6 +1573,13 @@
                 const labelLevel = parseInt(label.getAttribute('data-level'));
                 label.classList.toggle('active', labelLevel === level);
             });
+            
+            // Обновляем позицию ползунка на треке визуально
+            const sliderTrack = document.querySelector('.difficulty-slider-track');
+            if (sliderTrack) {
+                const percent = ((level - 1) / 9) * 100;
+                sliderTrack.style.background = `linear-gradient(to right, #4CAF50 0%, #8BC34A ${percent/3}%, #FFC107 ${percent/2}%, #FF9800 ${percent*0.7}%, #f44336 ${percent}%, #ddd ${percent}%)`;
+            }
         }
 
         // Расчет стоимости
