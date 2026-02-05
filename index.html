@@ -3,837 +3,2204 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Система расчета и оформления заявок на клининг</title>
+    <title>Система расчета и оформления заявок</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 25px;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-left: 5px solid #2d89ef;
+        }
+
+        h1 {
+            color: #2d89ef;
+            font-size: 2.2rem;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        .manager-info {
+            background: #e8f4ff;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .manager-input {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .manager-input input {
+            flex: 1;
+            min-width: 250px;
+            padding: 12px 15px;
+            border: 2px solid #2d89ef;
+            border-radius: 8px;
+            font-size: 1rem;
+            max-width: 400px;
+        }
+
+        .manager-input .manager-badge {
+            background: #2d89ef;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .system-container {
+            display: grid;
+            grid-template-columns: 1.2fr 0.8fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        @media (max-width: 900px) {
+            .system-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .calculator-section, .order-section {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .order-section.active {
+            border: 2px solid #2d89ef;
+            box-shadow: 0 0 0 3px rgba(45, 137, 239, 0.1);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(45, 137, 239, 0.3); }
+            70% { box-shadow: 0 0 0 10px rgba(45, 137, 239, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(45, 137, 239, 0); }
+        }
+
+        h2 {
+            color: #2d89ef;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        h2 i {
+            font-size: 1.5rem;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+            position: relative;
+        }
+
+        .form-group label {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #444;
+            gap: 8px;
+        }
+
+        .form-group label .hint {
+            color: #666;
+            font-weight: normal;
+            font-size: 0.9rem;
+            font-style: italic;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #2d89ef;
+            box-shadow: 0 0 0 3px rgba(45, 137, 239, 0.1);
+        }
+
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .radio-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .radio-option {
+            display: flex;
+            align-items: center;
+            background: #f9f9f9;
+            padding: 12px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 2px solid transparent;
+        }
+
+        .radio-option:hover {
+            background: #f0f7ff;
+        }
+
+        .radio-option.selected {
+            background: #e8f4ff;
+            border-color: #2d89ef;
+        }
+
+        input[type="radio"] {
+            display: none;
+        }
+
+        .custom-radio {
+            width: 18px;
+            height: 18px;
+            border: 2px solid #ccc;
+            border-radius: 50%;
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        .radio-option.selected .custom-radio {
+            border-color: #2d89ef;
+            background-color: #2d89ef;
+        }
+
+        .custom-radio:after {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: white;
+            display: none;
+        }
+
+        .radio-option.selected .custom-radio:after {
+            display: block;
+        }
+
+        .radio-label {
+            cursor: pointer;
+            flex-grow: 1;
+            font-size: 0.95rem;
+        }
+
+        .radio-label small {
+            display: block;
+            color: #666;
+            font-size: 0.85rem;
+            margin-top: 2px;
+        }
+
+        .inline-fields {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .inline-field {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .inline-field label {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        .inline-field input, .inline-field select {
+            padding: 10px 12px;
+            font-size: 0.95rem;
+        }
+
+        .difficulty-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 25px;
+            border-left: 4px solid #2d89ef;
+        }
+
+        .difficulty-slider-container {
+            margin-top: 15px;
+        }
+
+        .difficulty-value {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #2d89ef;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        .difficulty-slider-wrapper {
+            position: relative;
+            margin: 20px 0;
+            padding: 0 12px;
+        }
+
+        .difficulty-slider-track {
+            position: absolute;
+            top: 50%;
+            left: 12px;
+            right: 12px;
+            height: 8px;
+            background: linear-gradient(to right, #4CAF50, #8BC34A, #FFC107, #FF9800, #f44336);
+            border-radius: 4px;
+            transform: translateY(-50%);
+            z-index: 1;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 24px;
+            background: transparent;
+            outline: none;
+            position: relative;
+            z-index: 2;
+            margin: 0;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #2d89ef;
+            cursor: pointer;
+            border: 3px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            position: relative;
+            z-index: 3;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #2d89ef;
+            cursor: pointer;
+            border: 3px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            position: relative;
+            z-index: 3;
+        }
+
+        .difficulty-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15px;
+            font-size: 0.85rem;
+            color: #666;
+            position: relative;
+            z-index: 1;
+        }
+
+        .difficulty-label {
+            text-align: center;
+            padding: 5px;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.3s;
+            flex: 1;
+            max-width: 30px;
+            position: relative;
+        }
+
+        .difficulty-label:hover {
+            background: #f0f0f0;
+        }
+
+        .difficulty-label.active {
+            background: #e8f4ff;
+            color: #2d89ef;
+            font-weight: 600;
+        }
+
+        .difficulty-description {
+            margin-top: 15px;
+            padding: 12px;
+            background: white;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            color: #666;
+            border: 1px solid #e0e0e0;
+        }
+
+        .checkbox-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .checkbox-option {
+            display: flex;
+            align-items: center;
+            background: #f9f9f9;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 2px solid transparent;
+        }
+
+        .checkbox-option:hover {
+            background: #f0f7ff;
+        }
+
+        .checkbox-option.selected {
+            background: #e8f4ff;
+            border-color: #2d89ef;
+        }
+
+        .custom-checkbox {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ccc;
+            border-radius: 4px;
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        .checkbox-option.selected .custom-checkbox {
+            border-color: #2d89ef;
+            background-color: #2d89ef;
+        }
+
+        .custom-checkbox:after {
+            content: '✓';
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            display: none;
+        }
+
+        .checkbox-option.selected .custom-checkbox:after {
+            display: block;
+        }
+
+        .checkbox-label {
+            cursor: pointer;
+            flex-grow: 1;
+            font-size: 0.9rem;
+        }
+
+        .price-display {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 12px;
+            text-align: center;
+            margin: 20px 0;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
+        }
+
+        .price-label {
+            font-size: 1rem;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+
+        .price-amount {
+            font-size: 3rem;
+            font-weight: 700;
+            margin: 10px 0;
+        }
+
+        .price-min {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+
+        .price-breakdown {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        .breakdown-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+            font-size: 0.95rem;
+        }
+
+        .breakdown-item:last-child {
+            border-bottom: none;
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: #2d89ef;
+            padding-top: 12px;
+            margin-top: 5px;
+            border-top: 2px solid #eee;
+        }
+
+        .breakdown-label {
+            color: #666;
+        }
+
+        .breakdown-value {
+            font-weight: 600;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        button {
+            flex: 1;
+            padding: 15px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .btn-calculate {
+            background: #2d89ef;
+            color: white;
+        }
+
+        .btn-calculate:hover {
+            background: #1a7ae0;
+            transform: translateY(-2px);
+        }
+
+        .btn-create-order {
+            background: #4CAF50;
+            color: white;
+            margin-top: 20px;
+        }
+
+        .btn-create-order:hover {
+            background: #3d8b40;
+            transform: translateY(-2px);
+        }
+
+        .btn-reset {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-reset:hover {
+            background: #e0e0e0;
+            transform: translateY(-2px);
+        }
+
+        .btn-next-step {
+            background: #FF9800;
+            color: white;
+            margin-top: 15px;
+        }
+
+        .btn-next-step:hover {
+            background: #e68900;
+            transform: translateY(-2px);
+        }
+
+        .status {
+            display: none;
+            padding: 12px 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            text-align: center;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            display: block;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+            color: #2d89ef;
+            font-size: 0.95rem;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        .action-btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.3s;
+            text-decoration: none;
+            border: none;
+            font-size: 0.95rem;
+        }
+
+        .action-btn.copy {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .action-btn.copy:hover {
+            background: #3d8b40;
+            transform: translateY(-2px);
+        }
+
+        .action-btn.telegram {
+            background: #0088cc;
+            color: white;
+        }
+
+        .action-btn.telegram:hover {
+            background: #0077b5;
+            transform: translateY(-2px);
+        }
+
+        .action-btn.new {
+            background: #FF9800;
+            color: white;
+        }
+
+        .action-btn.new:hover {
+            background: #e68900;
+            transform: translateY(-2px);
+        }
+
+        .result-area {
+            margin-top: 20px;
+            background: #f1f1f1;
+            padding: 20px;
+            border-radius: 10px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            margin-left: 5px;
+            color: #2d89ef;
+            cursor: help;
+        }
+
+        .tooltip-text {
+            visibility: hidden;
+            width: 250px;
+            background-color: #333;
+            color: white;
+            text-align: center;
+            border-radius: 6px;
+            padding: 10px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.9rem;
+            font-weight: normal;
+            z-index: 1000;
+        }
+
+        .tooltip:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .field-note {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 5px;
+            font-style: italic;
+        }
+
+        .required::after {
+            content: " *";
+            color: #f44336;
+        }
+
+        .manager-only {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 0.95rem;
+            color: #856404;
+        }
+
+        .step-indicator {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .step-circle {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #ddd;
+            color: #666;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        .step.active .step-circle {
+            background: #2d89ef;
+            color: white;
+            transform: scale(1.1);
+        }
+
+        .step.completed .step-circle {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .step-label {
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        .step.active .step-label {
+            color: #2d89ef;
+            font-weight: 600;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 50px;
+            padding: 20px;
+            color: #666;
+            font-size: 0.9rem;
+            border-top: 1px solid #eee;
+        }
+
+        .next-step-notice {
+            background: #e8f4ff;
+            border: 1px solid #2d89ef;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            text-align: center;
+            font-size: 0.95rem;
+            display: none;
+        }
+
+        .coefficient-scale {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+
+        .scale-item {
+            text-align: center;
+            flex: 1;
+        }
+
+        .scale-level {
+            font-weight: bold;
+            color: #2d89ef;
+        }
+
+        .scale-percent {
+            color: #666;
+            font-size: 0.8rem;
+        }
+
+        .difficulty-examples {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .difficulty-example {
+            background: white;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            border-left: 3px solid #ddd;
+        }
+
+        .difficulty-example.level-1 { border-left-color: #4CAF50; }
+        .difficulty-example.level-3 { border-left-color: #FFC107; }
+        .difficulty-example.level-5 { border-left-color: #FF9800; }
+        .difficulty-example.level-7 { border-left-color: #FF5722; }
+        .difficulty-example.level-10 { border-left-color: #f44336; }
+
+        .pets-group {
+            margin-top: 15px;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+        }
+    </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="style.css">
-    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧹</text></svg>">
 </head>
 <body>
     <div class="container">
-        <!-- ШАПКА -->
         <header>
-            <div class="header-content">
-                <h1>
-                    <i class="fas fa-broom"></i>
-                    Система управления заявками на клининг
-                    <i class="fas fa-chart-line"></i>
-                </h1>
-                <p class="subtitle">Профессиональная система для менеджеров и мастеров</p>
-                
-                <div class="manager-card">
-                    <div class="manager-header">
+            <h1>
+                <i class="fas fa-calculator"></i>
+                Система расчета и оформления заявок
+                <i class="fas fa-file-invoice-dollar"></i>
+            </h1>
+            <p>Для менеджеров клининговой компании</p>
+            
+            <div class="manager-info">
+                <div class="manager-input">
+                    <div class="manager-badge">
                         <i class="fas fa-user-tie"></i>
-                        <h3>Панель менеджера</h3>
+                        Менеджер:
                     </div>
-                    <div class="manager-input-group">
-                        <div class="input-with-icon">
-                            <i class="fas fa-signature"></i>
-                            <input type="text" id="managerName" placeholder="Ваше имя" value="Менеджер" maxlength="30">
-                        </div>
-                        <div class="manager-stats">
-                            <span class="stat-item">
-                                <i class="fas fa-clock"></i>
-                                <span id="currentTime">--:--</span>
-                            </span>
-                            <span class="stat-item">
-                                <i class="fas fa-calendar"></i>
-                                <span id="currentDate">--.--.----</span>
-                            </span>
-                        </div>
-                    </div>
+                    <input type="text" id="managerName" placeholder="Введите ваше имя" maxlength="50" value="Менеджер">
                 </div>
+                <div class="field-note">Имя менеджера будет указано в заявке и отправлено в таблицу</div>
             </div>
         </header>
 
-        <!-- ШАГИ -->
-        <div class="steps-container">
-            <div class="step active" data-step="1">
-                <div class="step-number">1</div>
-                <div class="step-text">Расчет</div>
-                <div class="step-line"></div>
+        <div class="step-indicator">
+            <div class="step active" id="step1">
+                <div class="step-circle">1</div>
+                <div class="step-label">Расчет стоимости</div>
             </div>
-            <div class="step" data-step="2">
-                <div class="step-number">2</div>
-                <div class="step-text">Данные</div>
-                <div class="step-line"></div>
+            <div class="step" id="step2">
+                <div class="step-circle">2</div>
+                <div class="step-label">Заполнение заявки</div>
             </div>
-            <div class="step" data-step="3">
-                <div class="step-number">3</div>
-                <div class="step-text">Публикация</div>
-                <div class="step-line"></div>
+            <div class="step" id="step3">
+                <div class="step-circle">3</div>
+                <div class="step-label">Оформление</div>
             </div>
         </div>
 
-        <!-- ОСНОВНОЙ КОНТЕНТ -->
-        <main class="main-content">
-            <!-- ЛЕВАЯ ПАНЕЛЬ: КАЛЬКУЛЯТОР -->
-            <section class="panel calculator-panel active" id="calculatorPanel">
-                <div class="panel-header">
+        <div class="manager-only">
+            <i class="fas fa-exclamation-triangle"></i>
+            <strong>Внимание менеджера!</strong> Коэффициент сложности: 1-5 (максимум +35%), 6-10 (до +100%). Уровень 1 - стандартная уборка, уровень 5 - сложные условия с животными, уровень 10 - экстремальные случаи.
+        </div>
+
+        <div class="system-container">
+            <!-- ЛЕВАЯ КОЛОНКА: КАЛЬКУЛЯТОР -->
+            <div class="calculator-section">
+                <div class="section-header">
                     <h2><i class="fas fa-calculator"></i> Калькулятор стоимости</h2>
-                    <div class="panel-badge">Шаг 1</div>
+                    <div class="step-circle" style="width: 30px; height: 30px; background: #2d89ef; color: white;">1</div>
                 </div>
 
-                <!-- ГОРОД -->
-                <div class="form-section">
-                    <div class="section-title">
-                        <i class="fas fa-city"></i>
-                        <h3>Город публикации</h3>
-                        <span class="required-badge">обязательно</span>
-                    </div>
-                    <div class="cities-grid" id="citiesGrid">
-                        <!-- Города будут добавлены через JS -->
+                <div class="form-group">
+                    <label class="required">Тип уборки <span class="hint">(выберите один)</span></label>
+                    <div class="radio-group" id="cleaningType">
+                        <div class="radio-option selected" data-value="maintenance" data-price="80">
+                            <div class="custom-radio"></div>
+                            <span class="radio-label">
+                                Поддерживающая
+                                <small>от 80 руб/м² • Стандартная уборка</small>
+                            </span>
+                        </div>
+                        <div class="radio-option" data-value="general" data-price="100">
+                            <div class="custom-radio"></div>
+                            <span class="radio-label">
+                                Генеральная
+                                <small>от 100 руб/м² • Полная уборка</small>
+                            </span>
+                        </div>
+                        <div class="radio-option" data-value="post-renovation" data-price="150">
+                            <div class="custom-radio"></div>
+                            <span class="radio-label">
+                                После ремонта
+                                <small>от 150 руб/м² • Строительная пыль, загрязнения</small>
+                            </span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- ОСНОВНЫЕ ПАРАМЕТРЫ -->
-                <div class="form-section">
-                    <div class="section-title">
-                        <i class="fas fa-cog"></i>
-                        <h3>Основные параметры</h3>
-                    </div>
-                    
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="cleaningType">
-                                <i class="fas fa-broom"></i> Тип уборки
-                            </label>
-                            <div class="service-cards">
-                                <div class="service-card selected" data-type="Поддерживающая" data-price="80">
-                                    <div class="service-icon">
-                                        <i class="fas fa-home"></i>
-                                    </div>
-                                    <div class="service-info">
-                                        <div class="service-title">Поддерживающая</div>
-                                        <div class="service-price">от 80 ₽/м²</div>
-                                        <div class="service-desc">Стандартная уборка</div>
-                                    </div>
-                                    <div class="service-check">
-                                        <i class="fas fa-check"></i>
-                                    </div>
-                                </div>
-                                <div class="service-card" data-type="Генеральная" data-price="100">
-                                    <div class="service-icon">
-                                        <i class="fas fa-shower"></i>
-                                    </div>
-                                    <div class="service-info">
-                                        <div class="service-title">Генеральная</div>
-                                        <div class="service-price">от 100 ₽/м²</div>
-                                        <div class="service-desc">Полная уборка</div>
-                                    </div>
-                                    <div class="service-check">
-                                        <i class="fas fa-check"></i>
-                                    </div>
-                                </div>
-                                <div class="service-card" data-type="После ремонта" data-price="150">
-                                    <div class="service-icon">
-                                        <i class="fas fa-tools"></i>
-                                    </div>
-                                    <div class="service-info">
-                                        <div class="service-title">После ремонта</div>
-                                        <div class="service-price">от 150 ₽/м²</div>
-                                        <div class="service-desc">Строительная пыль</div>
-                                    </div>
-                                    <div class="service-check">
-                                        <i class="fas fa-check"></i>
-                                    </div>
-                                </div>
-                            </div>
+                <div class="form-group">
+                    <label class="required">Площадь помещения <span class="hint">(в м²)</span></label>
+                    <div class="inline-fields">
+                        <div class="inline-field">
+                            <label>Площадь (м²)</label>
+                            <input type="number" id="areaSize" min="10" max="1000" value="60" step="1" placeholder="Например: 85">
                         </div>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="areaSize">
-                                <i class="fas fa-vector-square"></i> Площадь помещения
-                            </label>
-                            <div class="area-input">
-                                <input type="number" id="areaSize" min="10" max="1000" value="60" step="1">
-                                <span class="input-unit">м²</span>
-                            </div>
-                            <div class="area-slider-container">
-                                <input type="range" id="areaSlider" min="10" max="500" value="60" step="5">
-                                <div class="area-labels">
-                                    <span>10 м²</span>
-                                    <span>100 м²</span>
-                                    <span>500 м²</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="roomType">
-                                <i class="fas fa-building"></i> Тип помещения
-                            </label>
-                            <select id="roomType" class="styled-select">
-                                <option value="Квартира">Квартира</option>
-                                <option value="Офис">Офис</option>
-                                <option value="Дом">Частный дом</option>
-                                <option value="Коттедж">Коттедж</option>
-                                <option value="Производственное">Производственное</option>
+                        <div class="inline-field">
+                            <label>Тип помещения</label>
+                            <select id="roomType">
+                                <option value="apartment" selected>Квартира</option>
+                                <option value="office">Офис</option>
+                                <option value="house">Дом</option>
+                                <option value="industrial">Производственное</option>
                             </select>
                         </div>
                     </div>
+                    <div class="field-note">Укажите точную площадь помещения для расчета</div>
                 </div>
 
-                <!-- СЛОЖНОСТЬ -->
-                <div class="form-section difficulty-section">
-                    <div class="section-title">
-                        <i class="fas fa-chart-line"></i>
-                        <h3>Коэффициент сложности</h3>
-                        <span class="info-badge" title="Учитывает дополнительные факторы: животные, загрязнения, мебель и т.д.">
-                            <i class="fas fa-info-circle"></i>
-                        </span>
-                    </div>
-
-                    <div class="difficulty-display">
-                        <div class="difficulty-level">
-                            <span class="level-label">Уровень</span>
-                            <span class="level-value" id="difficultyValue">1</span>
+                <div class="difficulty-section">
+                    <label class="required">Коэффициент сложности <span class="hint">(1-10, до +100%)</span></label>
+                    
+                    <div class="coefficient-scale">
+                        <div class="scale-item">
+                            <div class="scale-level">1</div>
+                            <div class="scale-percent">+0%</div>
                         </div>
-                        <div class="difficulty-percent">
-                            <span class="percent-label">Наценка</span>
-                            <span class="percent-value" id="difficultyPercent">+0%</span>
+                        <div class="scale-item">
+                            <div class="scale-level">3</div>
+                            <div class="scale-percent">+20%</div>
+                        </div>
+                        <div class="scale-item">
+                            <div class="scale-level">5</div>
+                            <div class="scale-percent">+35%</div>
+                        </div>
+                        <div class="scale-item">
+                            <div class="scale-level">7</div>
+                            <div class="scale-percent">+60%</div>
+                        </div>
+                        <div class="scale-item">
+                            <div class="scale-level">10</div>
+                            <div class="scale-percent">+100%</div>
                         </div>
                     </div>
-
+                    
                     <div class="difficulty-slider-container">
-                        <input type="range" id="difficultySlider" min="1" max="10" value="1" step="1">
-                        <div class="difficulty-scale">
-                            <span class="scale-point" data-level="1">1</span>
-                            <span class="scale-point" data-level="3">3</span>
-                            <span class="scale-point" data-level="5">5</span>
-                            <span class="scale-point" data-level="7">7</span>
-                            <span class="scale-point" data-level="10">10</span>
+                        <div class="difficulty-value" id="difficultyValue">Уровень 1: Стандартная уборка (+0%)</div>
+                        
+                        <div class="difficulty-slider-wrapper">
+                            <div class="difficulty-slider-track"></div>
+                            <input type="range" id="difficultySlider" min="1" max="10" value="1" step="1">
                         </div>
-                        <div class="difficulty-descriptions">
-                            <div class="desc-item" data-level="1">
-                                <span class="desc-level">1-2:</span>
-                                <span class="desc-text">Стандартные условия</span>
-                            </div>
-                            <div class="desc-item" data-level="4">
-                                <span class="desc-level">3-4:</span>
-                                <span class="desc-text">Животные, мебель</span>
-                            </div>
-                            <div class="desc-item" data-level="7">
-                                <span class="desc-level">5-7:</span>
-                                <span class="desc-text">Сильные загрязнения</span>
-                            </div>
-                            <div class="desc-item" data-level="10">
-                                <span class="desc-level">8-10:</span>
-                                <span class="desc-text">Экстремальные случаи</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ДОПОЛНИТЕЛЬНЫЕ УСЛУГИ -->
-                <div class="form-section">
-                    <div class="section-title">
-                        <i class="fas fa-plus-circle"></i>
-                        <h3>Дополнительные услуги</h3>
-                    </div>
-
-                    <div class="extras-grid">
-                        <div class="extra-item">
-                            <div class="extra-icon">
-                                <i class="fas fa-window-maximize"></i>
-                            </div>
-                            <div class="extra-info">
-                                <div class="extra-title">Мойка окон</div>
-                                <div class="extra-controls">
-                                    <button class="btn-counter minus" data-target="windowsCount">-</button>
-                                    <input type="number" id="windowsCount" value="0" min="0" max="50">
-                                    <button class="btn-counter plus" data-target="windowsCount">+</button>
-                                    <span class="extra-unit">створок</span>
-                                </div>
-                                <div class="extra-price">+200 ₽/створка</div>
-                            </div>
+                        
+                        <div class="difficulty-labels">
+                            <div class="difficulty-label active" data-level="1">1</div>
+                            <div class="difficulty-label" data-level="2">2</div>
+                            <div class="difficulty-label" data-level="3">3</div>
+                            <div class="difficulty-label" data-level="4">4</div>
+                            <div class="difficulty-label" data-level="5">5</div>
+                            <div class="difficulty-label" data-level="6">6</div>
+                            <div class="difficulty-label" data-level="7">7</div>
+                            <div class="difficulty-label" data-level="8">8</div>
+                            <div class="difficulty-label" data-level="9">9</div>
+                            <div class="difficulty-label" data-level="10">10</div>
                         </div>
 
-                        <div class="extra-item">
-                            <div class="extra-icon">
-                                <i class="fas fa-warehouse"></i>
+                        <div class="difficulty-description">
+                            <strong>Шкала сложности для менеджера:</strong>
+                            <br>1-3: Стандартные условия
+                            <br>4-5: Сложные условия (животные, много мебели)
+                            <br>6-8: Очень сложные (сильные загрязнения)
+                            <br>9-10: Экстремальные случаи (требуют особого подхода)
+                        </div>
+
+                        <div class="difficulty-examples">
+                            <div class="difficulty-example level-1">
+                                <strong>Уровень 1-2:</strong> Стандартная уборка, нормальное загрязнение
                             </div>
-                            <div class="extra-info">
-                                <div class="extra-title">Мытье шкафов</div>
-                                <div class="extra-controls">
-                                    <button class="btn-counter minus" data-target="cabinetsCount">-</button>
-                                    <input type="number" id="cabinetsCount" value="0" min="0" max="20">
-                                    <button class="btn-counter plus" data-target="cabinetsCount">+</button>
-                                    <span class="extra-unit">шт</span>
-                                </div>
-                                <div class="extra-price">+250 ₽/шт</div>
+                            <div class="difficulty-example level-3">
+                                <strong>Уровень 3-4:</strong> Среднее загрязнение, наличие животных
                             </div>
-                        </div>
-
-                        <div class="extra-item">
-                            <div class="extra-icon">
-                                <i class="fas fa-snowflake"></i>
+                            <div class="difficulty-example level-5">
+                                <strong>Уровень 5-6:</strong> Сильное загрязнение, домашние животные
                             </div>
-                            <div class="extra-info">
-                                <div class="extra-title">Холодильник</div>
-                                <div class="extra-controls">
-                                    <button class="btn-counter minus" data-target="fridgeCount">-</button>
-                                    <input type="number" id="fridgeCount" value="0" min="0" max="10">
-                                    <button class="btn-counter plus" data-target="fridgeCount">+</button>
-                                    <span class="extra-unit">шт</span>
-                                </div>
-                                <div class="extra-price">+600 ₽/шт</div>
+                            <div class="difficulty-example level-7">
+                                <strong>Уровень 7-8:</strong> Очень сложные условия, много нюансов
                             </div>
-                        </div>
-
-                        <div class="extra-item">
-                            <div class="extra-icon">
-                                <i class="fas fa-fire"></i>
-                            </div>
-                            <div class="extra-info">
-                                <div class="extra-title">Духовой шкаф</div>
-                                <div class="extra-controls">
-                                    <button class="btn-counter minus" data-target="ovenCount">-</button>
-                                    <input type="number" id="ovenCount" value="0" min="0" max="10">
-                                    <button class="btn-counter plus" data-target="ovenCount">+</button>
-                                    <span class="extra-unit">шт</span>
-                                </div>
-                                <div class="extra-price">+500 ₽/шт</div>
-                            </div>
-                        </div>
-
-                        <div class="extra-item">
-                            <div class="extra-icon">
-                                <i class="fas fa-wind"></i>
-                            </div>
-                            <div class="extra-info">
-                                <div class="extra-title">Вытяжка</div>
-                                <div class="extra-controls">
-                                    <button class="btn-counter minus" data-target="hoodCount">-</button>
-                                    <input type="number" id="hoodCount" value="0" min="0" max="10">
-                                    <button class="btn-counter plus" data-target="hoodCount">+</button>
-                                    <span class="extra-unit">шт</span>
-                                </div>
-                                <div class="extra-price">+300 ₽/шт</div>
-                            </div>
-                        </div>
-
-                        <div class="extra-item">
-                            <div class="extra-icon">
-                                <i class="fas fa-plug"></i>
-                            </div>
-                            <div class="extra-info">
-                                <div class="extra-title">Мелкая техника</div>
-                                <div class="extra-controls">
-                                    <button class="btn-counter minus" data-target="appliancesCount">-</button>
-                                    <input type="number" id="appliancesCount" value="0" min="0" max="20">
-                                    <button class="btn-counter plus" data-target="appliancesCount">+</button>
-                                    <span class="extra-unit">шт</span>
-                                </div>
-                                <div class="extra-price">+100 ₽/шт</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="extra-options">
-                        <div class="option-item">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="farTrip" value="1000">
-                                <span class="checkbox-custom"></span>
-                                <span class="option-text">
-                                    <i class="fas fa-car-side"></i>
-                                    Дальний выезд (+1000 ₽)
-                                </span>
-                            </label>
-                        </div>
-                        <div class="option-item">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="hasPets">
-                                <span class="checkbox-custom"></span>
-                                <span class="option-text">
-                                    <i class="fas fa-paw"></i>
-                                    Наличие домашних животных
-                                </span>
-                            </label>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- РЕЗУЛЬТАТ РАСЧЕТА -->
-                <div class="calculation-result">
-                    <div class="result-header">
-                        <h3><i class="fas fa-file-invoice-dollar"></i> Результат расчета</h3>
-                        <button class="btn-refresh" id="refreshCalc">
-                            <i class="fas fa-redo"></i>
-                        </button>
-                    </div>
-
-                    <div class="price-breakdown">
-                        <div class="breakdown-item">
-                            <span class="breakdown-label">Базовая стоимость:</span>
-                            <span class="breakdown-value" id="basePrice">0 ₽</span>
-                        </div>
-                        <div class="breakdown-item">
-                            <span class="breakdown-label">Доп. услуги:</span>
-                            <span class="breakdown-value" id="extraPrice">0 ₽</span>
-                        </div>
-                        <div class="breakdown-item">
-                            <span class="breakdown-label">Коэффициент сложности:</span>
-                            <span class="breakdown-value" id="difficultyAdd">+0% (0 ₽)</span>
-                        </div>
-                        <div class="breakdown-total">
-                            <span class="total-label">Итоговая стоимость:</span>
-                            <span class="total-value" id="totalPrice">0 ₽</span>
-                        </div>
-                    </div>
-
-                    <div class="result-actions">
-                        <button class="btn-primary btn-next-step" id="nextToData">
-                            <i class="fas fa-arrow-right"></i>
-                            Перейти к данным клиента
-                        </button>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ЦЕНТРАЛЬНАЯ ПАНЕЛЬ: ДАННЫЕ КЛИЕНТА -->
-            <section class="panel data-panel" id="dataPanel">
-                <div class="panel-header">
-                    <h2><i class="fas fa-user-edit"></i> Данные клиента</h2>
-                    <div class="panel-badge">Шаг 2</div>
-                </div>
-
-                <!-- КОНТАКТНЫЕ ДАННЫЕ -->
-                <div class="form-section">
-                    <div class="section-title">
-                        <i class="fas fa-address-card"></i>
-                        <h3>Контактные данные</h3>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="customerName">
-                                <i class="fas fa-user"></i> ФИО клиента
-                                <span class="required-star">*</span>
-                            </label>
-                            <div class="input-with-icon">
-                                <i class="fas fa-user"></i>
-                                <input type="text" id="customerName" placeholder="Иванов Иван Иванович" maxlength="50">
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="customerPhone">
-                                <i class="fas fa-phone"></i> Телефон
-                                <span class="required-star">*</span>
-                            </label>
-                            <div class="input-with-icon">
-                                <i class="fas fa-phone"></i>
-                                <input type="tel" id="customerPhone" placeholder="+7 (___) ___-__-__" maxlength="18">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="customerAddress">
-                            <i class="fas fa-map-marker-alt"></i> Адрес уборки
-                            <span class="required-star">*</span>
-                        </label>
-                        <div class="address-inputs">
-                            <div class="input-with-icon">
-                                <i class="fas fa-road"></i>
-                                <input type="text" id="customerStreet" placeholder="Улица, дом" maxlength="100">
-                            </div>
-                            <div class="input-with-icon">
-                                <i class="fas fa-door-closed"></i>
-                                <input type="text" id="customerFlat" placeholder="Квартира/офис" maxlength="10">
-                            </div>
-                        </div>
-                        <div class="field-note">
-                            <i class="fas fa-info-circle"></i>
-                            Адрес будет скрыт в Telegram канале и показан только мастеру, взявшему заявку
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ДАТА И ВРЕМЯ -->
-                <div class="form-section">
-                    <div class="section-title">
-                        <i class="fas fa-calendar-alt"></i>
-                        <h3>Дата и время уборки</h3>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="orderDate">
-                                <i class="fas fa-calendar-day"></i> Дата
-                            </label>
-                            <div class="input-with-icon">
-                                <i class="fas fa-calendar"></i>
-                                <input type="date" id="orderDate">
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="orderTime">
-                                <i class="fas fa-clock"></i> Время
-                            </label>
-                            <div class="input-with-icon">
-                                <i class="fas fa-clock"></i>
-                                <input type="time" id="orderTime">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="quick-dates">
-                        <span class="quick-date-label">Быстрый выбор:</span>
-                        <div class="quick-buttons">
-                            <button class="btn-quick-date" data-days="1">Завтра</button>
-                            <button class="btn-quick-date" data-days="2">Послезавтра</button>
-                            <button class="btn-quick-date" data-days="7">Через неделю</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ФИНАНСЫ -->
-                <div class="form-section">
-                    <div class="section-title">
-                        <i class="fas fa-money-bill-wave"></i>
-                        <h3>Финансовые параметры</h3>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="orderTotal">
-                                <i class="fas fa-receipt"></i> Сумма заказа
-                            </label>
-                            <div class="input-with-icon">
-                                <i class="fas fa-ruble-sign"></i>
-                                <input type="text" id="orderTotal" readonly placeholder="Автозаполнение">
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="masterPay">
-                                <i class="fas fa-user-cog"></i> Зарплата мастера
-                            </label>
-                            <div class="payment-options">
-                                <div class="payment-buttons">
-                                    <button class="btn-payment-option active" data-percent="60">60%</button>
-                                    <button class="btn-payment-option" data-percent="70">70%</button>
-                                    <button class="btn-payment-option" data-percent="fixed">Фикс.</button>
-                                </div>
-                                <div class="input-with-icon">
-                                    <i class="fas fa-wallet"></i>
-                                    <input type="number" id="masterPay" placeholder="Сумма" min="0">
-                                </div>
+                            <div class="difficulty-example level-10">
+                                <strong>Уровень 9-10:</strong> Экстремальные случаи, особые требования
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- ОБОРУДОВАНИЕ И ХИМИЯ -->
-                <div class="form-section">
-                    <div class="section-title">
-                        <i class="fas fa-toolbox"></i>
-                        <h3>Оборудование и химия</h3>
+                <div class="form-group">
+                    <label>Дополнительные услуги <span class="hint">(опционально)</span></label>
+                    
+                    <div class="inline-fields">
+                        <div class="inline-field">
+                            <label>Окна (створки)</label>
+                            <input type="number" id="windowsCount" min="0" value="0" placeholder="Количество">
+                        </div>
+                        <div class="inline-field">
+                            <label>Тип мойки</label>
+                            <select id="windowsType">
+                                <option value="200">С одной стороны (200 руб)</option>
+                                <option value="400">С двух сторон (400 руб)</option>
+                            </select>
+                        </div>
                     </div>
 
-                    <div class="equipment-section">
-                        <div class="equipment-category">
-                            <h4><i class="fas fa-tools"></i> Оборудование</h4>
-                            <div class="equipment-tags" id="equipmentTags">
-                                <!-- Теги будут добавлены через JS -->
-                            </div>
+                    <div class="inline-fields">
+                        <div class="inline-field">
+                            <label>Шкафы (шт)</label>
+                            <input type="number" id="cabinetsCount" min="0" value="0" placeholder="Количество">
                         </div>
+                        <div class="inline-field">
+                            <label>Холодильники (шт)</label>
+                            <input type="number" id="fridgeCount" min="0" value="0" placeholder="Количество">
+                        </div>
+                    </div>
 
-                        <div class="equipment-category">
-                            <h4><i class="fas fa-flask"></i> Химия</h4>
-                            <div class="equipment-tags" id="chemistryTags">
-                                <!-- Теги будут добавлены через JS -->
+                    <div class="inline-fields">
+                        <div class="inline-field">
+                            <label>Духовые шкафы (шт)</label>
+                            <input type="number" id="ovenCount" min="0" value="0" placeholder="Количество">
+                        </div>
+                        <div class="inline-field">
+                            <label>Вытяжки (шт)</label>
+                            <input type="number" id="hoodCount" min="0" value="0" placeholder="Количество">
+                        </div>
+                    </div>
+
+                    <div class="inline-fields">
+                        <div class="inline-field">
+                            <label>Мелкая техника (шт)</label>
+                            <input type="number" id="appliancesCount" min="0" value="0" placeholder="Количество">
+                        </div>
+                        <div class="inline-field">
+                            <label>Дальний выезд</label>
+                            <select id="farTrip">
+                                <option value="0">Нет</option>
+                                <option value="1000">Да (+1000 руб)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="pets-group">
+                        <label>Наличие домашних животных</label>
+                        <div class="radio-group" id="petsGroup">
+                            <div class="radio-option selected" data-value="нет">
+                                <div class="custom-radio"></div>
+                                <span class="radio-label">Нет</span>
+                            </div>
+                            <div class="radio-option" data-value="есть">
+                                <div class="custom-radio"></div>
+                                <span class="radio-label">Есть</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- ОПИСАНИЕ -->
-                <div class="form-section">
-                    <div class="section-title">
-                        <i class="fas fa-edit"></i>
-                        <h3>Дополнительная информация</h3>
-                    </div>
+                <div class="price-display">
+                    <div class="price-label">Ориентировочная стоимость:</div>
+                    <div class="price-amount" id="totalPrice">0 руб</div>
+                    <div class="price-min">*Минимальный заказ: 3 500 руб</div>
+                </div>
 
-                    <div class="form-group">
-                        <label for="worksDescription">
-                            <i class="fas fa-clipboard-list"></i> Описание работ и особенности
-                        </label>
-                        <textarea id="worksDescription" placeholder="Дополнительные пожелания, особенности помещения, доступ в подъезд, код домофона, парковка..."></textarea>
-                        <div class="char-counter">
-                            <span id="charCount">0</span> / 500 символов
-                        </div>
+                <div class="price-breakdown">
+                    <div class="breakdown-item">
+                        <span class="breakdown-label">Базовая уборка:</span>
+                        <span class="breakdown-value" id="basePrice">0 руб</span>
+                    </div>
+                    <div class="breakdown-item">
+                        <span class="breakdown-label">Доп. услуги:</span>
+                        <span class="breakdown-value" id="extraPrice">0 руб</span>
+                    </div>
+                    <div class="breakdown-item">
+                        <span class="breakdown-label">Коэффициент сложности:</span>
+                        <span class="breakdown-value" id="difficultyPrice">+0%</span>
+                    </div>
+                    <div class="breakdown-item">
+                        <span class="breakdown-label">Итоговая стоимость:</span>
+                        <span class="breakdown-value" id="finalPrice">0 руб</span>
                     </div>
                 </div>
 
-                <!-- НАВИГАЦИЯ -->
-                <div class="navigation-buttons">
-                    <button class="btn-secondary btn-prev-step" id="prevToCalc">
-                        <i class="fas fa-arrow-left"></i>
-                        Назад к расчету
+                <div class="buttons">
+                    <button class="btn-calculate" id="calculateBtn">
+                        <i class="fas fa-calculator"></i> Рассчитать стоимость
                     </button>
-                    <button class="btn-primary btn-next-step" id="nextToPublish">
-                        <i class="fas fa-share-alt"></i>
-                        Перейти к публикации
-                    </button>
-                </div>
-            </section>
-
-            <!-- ПРАВАЯ ПАНЕЛЬ: ПУБЛИКАЦИЯ -->
-            <section class="panel publish-panel" id="publishPanel">
-                <div class="panel-header">
-                    <h2><i class="fas fa-paper-plane"></i> Публикация заявки</h2>
-                    <div class="panel-badge">Шаг 3</div>
-                </div>
-
-                <!-- ПРЕДПРОСМОТР -->
-                <div class="form-section">
-                    <div class="section-title">
-                        <i class="fas fa-eye"></i>
-                        <h3>Предпросмотр заявки</h3>
-                    </div>
-
-                    <div class="preview-card">
-                        <div class="preview-header">
-                            <div class="preview-id">
-                                <i class="fas fa-hashtag"></i>
-                                <span id="previewOrderId">CLN-XXXXXX</span>
-                            </div>
-                            <div class="preview-status">
-                                <span class="status-badge new">Новая</span>
-                            </div>
-                        </div>
-
-                        <div class="preview-content">
-                            <div class="preview-row">
-                                <i class="fas fa-city"></i>
-                                <span class="preview-label">Город:</span>
-                                <span class="preview-value" id="previewCity">Не выбран</span>
-                            </div>
-                            <div class="preview-row">
-                                <i class="fas fa-broom"></i>
-                                <span class="preview-label">Тип уборки:</span>
-                                <span class="preview-value" id="previewType">Не выбран</span>
-                            </div>
-                            <div class="preview-row">
-                                <i class="fas fa-vector-square"></i>
-                                <span class="preview-label">Площадь:</span>
-                                <span class="preview-value" id="previewArea">0 м²</span>
-                            </div>
-                            <div class="preview-row">
-                                <i class="fas fa-money-bill-wave"></i>
-                                <span class="preview-label">Стоимость:</span>
-                                <span class="preview-value" id="previewPrice">0 ₽</span>
-                            </div>
-                            <div class="preview-row">
-                                <i class="fas fa-calendar"></i>
-                                <span class="preview-label">Дата:</span>
-                                <span class="preview-value" id="previewDate">Не указана</span>
-                            </div>
-                        </div>
-
-                        <div class="preview-footer">
-                            <div class="preview-channel">
-                                <i class="fab fa-telegram"></i>
-                                <span>Канал:</span>
-                                <span id="previewChannel">Не выбран</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ПРЕДУПРЕЖДЕНИЯ -->
-                <div class="warning-section">
-                    <div class="warning-card">
-                        <div class="warning-header">
-                            <i class="fas fa-exclamation-triangle"></i>
-                            <h3>Важная информация</h3>
-                        </div>
-                        <div class="warning-content">
-                            <p>После публикации заявка будет:</p>
-                            <ol>
-                                <li>Сохранена в Google Таблицу</li>
-                                <li>Опубликована в Telegram канале выбранного города</li>
-                                <li>Доступна всем мастерам в этом городе</li>
-                                <li>Контакты клиента будут скрыты в канале</li>
-                                <li>Мастер получит полные данные после принятия заявки</li>
-                                <li>Заявка автоматически удалится из канала после принятия</li>
-                            </ol>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- СТАТУС И РЕЗУЛЬТАТ -->
-                <div class="status-section" id="statusSection">
-                    <div class="status-message hidden" id="statusMessage">
-                        <div class="status-icon">
-                            <i class="fas fa-spinner fa-spin"></i>
-                        </div>
-                        <div class="status-text">
-                            <h4>Создание заявки...</h4>
-                            <p>Пожалуйста, подождите</p>
-                        </div>
-                    </div>
-
-                    <div class="result-card hidden" id="resultCard">
-                        <div class="result-header success">
-                            <i class="fas fa-check-circle"></i>
-                            <h3>Заявка создана успешно!</h3>
-                        </div>
-                        <div class="result-content">
-                            <div class="result-info">
-                                <div class="info-item">
-                                    <i class="fas fa-hashtag"></i>
-                                    <span>Номер:</span>
-                                    <strong id="resultOrderId">---</strong>
-                                </div>
-                                <div class="info-item">
-                                    <i class="fas fa-city"></i>
-                                    <span>Город:</span>
-                                    <strong id="resultCity">---</strong>
-                                </div>
-                                <div class="info-item">
-                                    <i class="fab fa-telegram"></i>
-                                    <span>Канал:</span>
-                                    <a href="#" target="_blank" id="resultChannelLink">Открыть</a>
-                                </div>
-                            </div>
-
-                            <div class="result-actions">
-                                <button class="btn-copy" id="btnCopyOrder">
-                                    <i class="far fa-copy"></i>
-                                    Копировать данные
-                                </button>
-                                <a href="#" class="btn-telegram" id="btnTelegram" target="_blank">
-                                    <i class="fab fa-telegram"></i>
-                                    Перейти в Telegram
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="result-card hidden" id="errorCard">
-                        <div class="result-header error">
-                            <i class="fas fa-times-circle"></i>
-                            <h3>Ошибка при создании</h3>
-                        </div>
-                        <div class="result-content">
-                            <p id="errorMessage">Неизвестная ошибка</p>
-                            <div class="error-actions">
-                                <button class="btn-secondary" id="btnRetry">
-                                    <i class="fas fa-redo"></i>
-                                    Попробовать снова
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- КНОПКИ ДЕЙСТВИЙ -->
-                <div class="action-buttons" id="actionButtons">
-                    <button class="btn-secondary btn-prev-step" id="prevToData">
-                        <i class="fas fa-arrow-left"></i>
-                        Назад к данным
-                    </button>
-                    <button class="btn-primary btn-publish" id="btnPublish">
-                        <i class="fas fa-paper-plane"></i>
-                        Создать и опубликовать заявку
+                    <button class="btn-reset" id="resetBtn">
+                        <i class="fas fa-redo"></i> Сбросить
                     </button>
                 </div>
 
-                <!-- ИНСТРУКЦИЯ -->
-                <div class="instructions-section">
-                    <div class="instructions-card">
-                        <div class="instructions-header">
-                            <i class="fas fa-graduation-cap"></i>
-                            <h3>Что делать дальше?</h3>
-                        </div>
-                        <div class="instructions-content">
-                            <div class="instruction-step">
-                                <div class="step-number">1</div>
-                                <div class="step-content">
-                                    <h4>Следите за заявкой в канале</h4>
-                                    <p>Заявка появится в Telegram канале выбранного города</p>
-                                </div>
-                            </div>
-                            <div class="instruction-step">
-                                <div class="step-number">2</div>
-                                <div class="step-content">
-                                    <h4>Мастер примет заявку</h4>
-                                    <p>Мастер нажмет кнопку "ВЗЯТЬ ЗАЯВКУ" в канале</p>
-                                </div>
-                            </div>
-                            <div class="instruction-step">
-                                <div class="step-number">3</div>
-                                <div class="step-content">
-                                    <h4>Автоматическое обновление</h4>
-                                    <p>Заявка удалится из канала, мастер получит контакты</p>
-                                </div>
-                            </div>
-                            <div class="instruction-step">
-                                <div class="step-number">4</div>
-                                <div class="step-content">
-                                    <h4>Отслеживание в таблице</h4>
-                                    <p>Все изменения будут видны в Google Таблице</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-        </main>
+                <button class="btn-next-step" id="nextStepBtn">
+                    <i class="fas fa-arrow-right"></i> Перейти к оформлению заявки
+                </button>
 
-        <!-- ПОДВАЛ -->
-        <footer>
-            <div class="footer-content">
-                <div class="footer-info">
-                    <div class="footer-logo">
-                        <i class="fas fa-broom"></i>
-                        <span>Cleaning Management System</span>
-                    </div>
-                    <div class="footer-version">
-                        Версия 2.0 • Все права защищены • 2024
-                    </div>
-                </div>
-                <div class="footer-links">
-                    <a href="#" class="footer-link">
-                        <i class="fas fa-question-circle"></i>
-                        Помощь
-                    </a>
-                    <a href="#" class="footer-link">
-                        <i class="fas fa-envelope"></i>
-                        Контакты
-                    </a>
-                    <a href="#" class="footer-link">
-                        <i class="fas fa-shield-alt"></i>
-                        Безопасность
-                    </a>
+                <div class="next-step-notice" id="nextStepNotice">
+                    <i class="fas fa-arrow-right"></i> <strong>Стоимость рассчитана!</strong> Перейдите к заполнению заявки справа.
                 </div>
             </div>
-        </footer>
-    </div>
 
-    <!-- МОДАЛЬНОЕ ОКНО ГОРОДОВ -->
-    <div class="modal" id="cityModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3><i class="fas fa-city"></i> Выберите город</h3>
-                <button class="modal-close">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="modal-cities" id="modalCities">
-                    <!-- Города будут добавлены через JS -->
+            <!-- ПРАВАЯ КОЛОНКА: ФОРМА ЗАЯВКИ -->
+            <div class="order-section" id="orderSection">
+                <div class="section-header">
+                    <h2><i class="fas fa-file-alt"></i> Форма заявки</h2>
+                    <div class="step-circle" style="width: 30px; height: 30px; background: #ddd; color: #666;">2</div>
+                </div>
+
+                <div class="form-group">
+                    <label class="required">Данные клиента</label>
+                    <div class="inline-fields">
+                        <div class="inline-field">
+                            <label>Имя клиента</label>
+                            <input type="text" id="customerName" placeholder="Фамилия Имя">
+                        </div>
+                        <div class="inline-field">
+                            <label>Телефон</label>
+                            <input type="tel" id="customerPhone" placeholder="+7 (___) ___-____">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="required">Адрес уборки</label>
+                    <div class="inline-fields">
+                        <div class="inline-field">
+                            <label>Адрес</label>
+                            <input type="text" id="customerAddress" placeholder="Улица, дом">
+                        </div>
+                        <div class="inline-field">
+                            <label>Квартира/офис</label>
+                            <input type="text" id="customerFlat" placeholder="Номер">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Дата и время уборки</label>
+                    <div class="inline-fields">
+                        <div class="inline-field">
+                            <label>Дата</label>
+                            <input type="date" id="orderDate">
+                        </div>
+                        <div class="inline-field">
+                            <label>Время</label>
+                            <input type="time" id="orderTime">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Финансы <span class="hint">(автозаполнение из калькулятора)</span></label>
+                    <div class="inline-fields">
+                        <div class="inline-field">
+                            <label>Сумма заказа</label>
+                            <input type="number" id="orderTotal" placeholder="Автозаполнение" readonly>
+                        </div>
+                        <div class="inline-field">
+                            <label>Зарплата мастерам</label>
+                            <select id="masterPayType">
+                                <option value="60">60/40</option>
+                                <option value="70">70/30</option>
+                                <option value="fixed">Фиксированная</option>
+                            </select>
+                            <input type="number" id="masterPay" placeholder="Сумма" style="margin-top: 8px;">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Оборудование</label>
+                    <div class="checkbox-group" id="equipmentGroup">
+                        <div class="checkbox-option" data-value="Стремянка">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Стремянка</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Пылесос">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Пылесос</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Парогенератор">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Парогенератор</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Мойщик окон">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Мойщик окон</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Ведро">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Ведро</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Мопы">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Мопы</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Скребок">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Скребок</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Химия</label>
+                    <div class="checkbox-group" id="chemistryGroup">
+                        <div class="checkbox-option" data-value="Универсальное средство">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Универсальное средство</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Средство от жира">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Средство от жира</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Средство для сантехники">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Средство для сантехники</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Антискотч">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Антискотч</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Средство для окон">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Средство для окон</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Полироль для мебели">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Полироль для мебели</span>
+                        </div>
+                        <div class="checkbox-option" data-value="Средство для строительных загрязнений">
+                            <div class="custom-checkbox"></div>
+                            <span class="checkbox-label">Для строительных загрязнений</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Описание работ</label>
+                    <textarea id="worksDescription" placeholder="Дополнительные пожелания, особенности помещения..."></textarea>
+                </div>
+
+                <button class="btn-create-order" id="createOrderBtn">
+                    <i class="fas fa-file-invoice-dollar"></i> Создать заявку
+                </button>
+
+                <div id="status" class="status"></div>
+                <div id="loading" class="loading">⏳ Обработка данных...</div>
+
+                <div id="resultArea" class="result-area" style="display: none;"></div>
+
+                <div class="action-buttons" id="actionButtons" style="display: none;">
+                    <button class="action-btn copy" onclick="copyToClipboard()">
+                        <i class="far fa-copy"></i> Копировать
+                    </button>
+                    <a href="#" class="action-btn telegram" id="telegramLinkBtn" target="_blank">
+                        <i class="fab fa-telegram"></i> Открыть в Telegram
+                    </a>
+                    <button class="action-btn new" onclick="newOrder()">
+                        <i class="fas fa-plus"></i> Новая заявка
+                    </button>
                 </div>
             </div>
         </div>
+
+        <footer>
+            <p>© 2024 Система расчета и оформления заявок. Для внутреннего использования менеджерами.</p>
+            <p style="margin-top: 5px; font-size: 0.8rem;">Все расчеты являются предварительными. Точную стоимость определяет менеджер.</p>
+        </footer>
     </div>
 
-    <!-- Подключаем скрипты -->
-    <script src="config.js"></script>
-    <script src="script.js"></script>
+    <script>
+        // =============== КОНФИГУРАЦИЯ ===============
+        const CONFIG = {
+            // Telegram Bot Token (получите у @BotFather)
+            TELEGRAM_BOT_TOKEN: '8471091759:AAGiszC401WRMWcTXXPi9PizsqxX-oAUurI',
+            
+            // Telegram Chat ID (получите автоматически)
+            TELEGRAM_CHAT_ID: '',
+            
+            // Google Sheets URL (ЗАМЕНИТЕ НА СВОЙ)
+            // Создайте новый скрипт: https://script.google.com/home
+            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbzLd5rQF1p_Y8bAk9QPe01jCyj5fO0zOvKaLdokFfT1S9j8SP5bN7uyNqR44B-0ZQ6T/exec',
+            
+            // Цены на услуги
+            PRICES: {
+                cleaningTypes: {
+                    'maintenance': 80,
+                    'general': 100,
+                    'post-renovation': 150
+                },
+                extras: {
+                    'windows': { '200': 200, '400': 400 },
+                    'cabinets': 250,
+                    'fridge': 600,
+                    'oven': 500,
+                    'hood': 300,
+                    'appliances': 100,
+                    'farTrip': 1000
+                },
+                minOrder: 3500,
+                difficulty: {
+                    1: 1.00, 2: 1.09, 3: 1.20, 4: 1.28, 5: 1.35,
+                    6: 1.48, 7: 1.60, 8: 1.75, 9: 1.88, 10: 2.00
+                }
+            }
+        };
+
+        // =============== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ===============
+        let currentOrderData = null;
+        let calculatedPrice = 0;
+        let telegramMessageId = null;
+        let TELEGRAM_API_URL = `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}`;
+
+        // =============== DOM ЭЛЕМЕНТЫ ===============
+        const managerNameInput = document.getElementById('managerName');
+        const cleaningTypeOptions = document.querySelectorAll('#cleaningType .radio-option');
+        const areaSizeInput = document.getElementById('areaSize');
+        const roomTypeSelect = document.getElementById('roomType');
+        const difficultySlider = document.getElementById('difficultySlider');
+        const difficultyValue = document.getElementById('difficultyValue');
+        const difficultyLabels = document.querySelectorAll('.difficulty-label');
+        const petsOptions = document.querySelectorAll('#petsGroup .radio-option');
+        
+        const windowsCount = document.getElementById('windowsCount');
+        const windowsType = document.getElementById('windowsType');
+        const cabinetsCount = document.getElementById('cabinetsCount');
+        const fridgeCount = document.getElementById('fridgeCount');
+        const ovenCount = document.getElementById('ovenCount');
+        const hoodCount = document.getElementById('hoodCount');
+        const appliancesCount = document.getElementById('appliancesCount');
+        const farTrip = document.getElementById('farTrip');
+        
+        const customerName = document.getElementById('customerName');
+        const customerPhone = document.getElementById('customerPhone');
+        const customerAddress = document.getElementById('customerAddress');
+        const customerFlat = document.getElementById('customerFlat');
+        const orderDate = document.getElementById('orderDate');
+        const orderTime = document.getElementById('orderTime');
+        const orderTotal = document.getElementById('orderTotal');
+        const masterPayType = document.getElementById('masterPayType');
+        const masterPay = document.getElementById('masterPay');
+        const worksDescription = document.getElementById('worksDescription');
+        
+        const equipmentOptions = document.querySelectorAll('#equipmentGroup .checkbox-option');
+        const chemistryOptions = document.querySelectorAll('#chemistryGroup .checkbox-option');
+        
+        const calculateBtn = document.getElementById('calculateBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const createOrderBtn = document.getElementById('createOrderBtn');
+        const nextStepBtn = document.getElementById('nextStepBtn');
+        
+        const totalPriceEl = document.getElementById('totalPrice');
+        const basePriceEl = document.getElementById('basePrice');
+        const extraPriceEl = document.getElementById('extraPrice');
+        const difficultyPriceEl = document.getElementById('difficultyPrice');
+        const finalPriceEl = document.getElementById('finalPrice');
+        
+        const statusEl = document.getElementById('status');
+        const loadingEl = document.getElementById('loading');
+        const resultArea = document.getElementById('resultArea');
+        const actionButtons = document.getElementById('actionButtons');
+        const telegramLinkBtn = document.getElementById('telegramLinkBtn');
+        
+        const orderSection = document.getElementById('orderSection');
+        const nextStepNotice = document.getElementById('nextStepNotice');
+        const step1 = document.getElementById('step1');
+        const step2 = document.getElementById('step2');
+        const step3 = document.getElementById('step3');
+
+        // =============== ИНИЦИАЛИЗАЦИЯ ===============
+        document.addEventListener('DOMContentLoaded', function() {
+            // Установка даты и времени по умолчанию
+            const today = new Date();
+            orderDate.value = today.toISOString().split('T')[0];
+            
+            const twoHoursLater = new Date(today.getTime() + 2 * 60 * 60 * 1000);
+            orderTime.value = twoHoursLater.toISOString().split('T')[1].substring(0, 5);
+            
+            // Проверка Telegram бота
+            checkTelegramBot();
+            
+            // Настройка обработчиков событий
+            setupEventListeners();
+            
+            // Автоматический расчет
+            calculatePrice();
+        });
+
+        // =============== ОБРАБОТЧИКИ СОБЫТИЙ ===============
+        function setupEventListeners() {
+            // Тип уборки
+            cleaningTypeOptions.forEach(option => {
+                option.addEventListener('click', function() {
+                    cleaningTypeOptions.forEach(opt => opt.classList.remove('selected'));
+                    this.classList.add('selected');
+                    calculatePrice();
+                });
+            });
+
+            // Площадь и тип помещения
+            areaSizeInput.addEventListener('input', calculatePrice);
+            roomTypeSelect.addEventListener('change', calculatePrice);
+            
+            // Сложность
+            difficultySlider.addEventListener('input', function() {
+                updateDifficultyDisplay();
+                calculatePrice();
+            });
+            
+            difficultySlider.addEventListener('change', function() {
+                updateDifficultyDisplay();
+                calculatePrice();
+            });
+            
+            difficultyLabels.forEach(label => {
+                label.addEventListener('click', function() {
+                    const level = parseInt(this.getAttribute('data-level'));
+                    difficultySlider.value = level;
+                    updateDifficultyDisplay();
+                    calculatePrice();
+                });
+            });
+            
+            // Домашние животные
+            petsOptions.forEach(option => {
+                option.addEventListener('click', function() {
+                    petsOptions.forEach(opt => opt.classList.remove('selected'));
+                    this.classList.add('selected');
+                });
+            });
+            
+            // Дополнительные услуги
+            const extraInputs = [windowsCount, windowsType, cabinetsCount, fridgeCount, 
+                               ovenCount, hoodCount, appliancesCount, farTrip];
+            extraInputs.forEach(input => {
+                input.addEventListener('change', calculatePrice);
+                input.addEventListener('input', calculatePrice);
+            });
+            
+            // Оборудование и химия
+            equipmentOptions.forEach(option => {
+                option.addEventListener('click', function() {
+                    this.classList.toggle('selected');
+                });
+            });
+            
+            chemistryOptions.forEach(option => {
+                option.addEventListener('click', function() {
+                    this.classList.toggle('selected');
+                });
+            });
+            
+            // Кнопки
+            calculateBtn.addEventListener('click', function() {
+                calculatePrice();
+                showNextStepNotice();
+            });
+            
+            resetBtn.addEventListener('click', resetCalculator);
+            nextStepBtn.addEventListener('click', showOrderForm);
+            createOrderBtn.addEventListener('click', createOrder);
+            
+            // Зарплата мастерам
+            masterPayType.addEventListener('change', calculateMasterPay);
+            masterPay.addEventListener('input', calculateMasterPay);
+        }
+
+        // =============== TELEGRAM ФУНКЦИИ ===============
+        async function checkTelegramBot() {
+            try {
+                const response = await fetch(`${TELEGRAM_API_URL}/getMe`);
+                const data = await response.json();
+                
+                if (data.ok) {
+                    console.log('✅ Telegram бот найден:', data.result.username);
+                    await findTelegramChatId();
+                } else {
+                    showStatus('❌ Ошибка Telegram бота. Проверьте токен.', 'error');
+                }
+            } catch (error) {
+                console.error('Ошибка проверки бота:', error);
+                showStatus('⚠️ Не удалось проверить Telegram бота. Проверьте интернет.', 'warning');
+            }
+        }
+
+        async function findTelegramChatId() {
+            try {
+                const response = await fetch(`${TELEGRAM_API_URL}/getUpdates`);
+                const data = await response.json();
+                
+                if (data.ok && data.result.length > 0) {
+                    for (const update of data.result) {
+                        if (update.message && update.message.chat) {
+                            const chat = update.message.chat;
+                            if (chat.type === 'group' || chat.type === 'supergroup') {
+                                CONFIG.TELEGRAM_CHAT_ID = chat.id;
+                                console.log('✅ Найден Chat ID группы:', CONFIG.TELEGRAM_CHAT_ID);
+                                showStatus('✅ Telegram настроен. Бот готов к отправке заявок.', 'success');
+                                return;
+                            }
+                        }
+                    }
+                }
+                
+                showStatus('⚠️ Добавьте бота @apexclean_bot в группу и отправьте сообщение', 'info');
+            } catch (error) {
+                console.error('Ошибка поиска Chat ID:', error);
+            }
+        }
+
+        async function sendToTelegramGroup(orderText) {
+            // Если Chat ID не найден
+            if (!CONFIG.TELEGRAM_CHAT_ID) {
+                await findTelegramChatId();
+                if (!CONFIG.TELEGRAM_CHAT_ID) {
+                    return {
+                        success: false,
+                        error: 'Chat ID не найден. Добавьте бота в группу.'
+                    };
+                }
+            }
+            
+            try {
+                const formattedText = formatForTelegram(orderText);
+                
+                const response = await fetch(`${TELEGRAM_API_URL}/sendMessage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: CONFIG.TELEGRAM_CHAT_ID,
+                        text: formattedText,
+                        parse_mode: 'HTML',
+                        disable_web_page_preview: true,
+                        reply_markup: {
+                            inline_keyboard: [[
+                                {
+                                    text: "✅ ВЫХОЖУ НА ЗАЯВКУ",
+                                    callback_data: `take_${currentOrderData.orderId}`
+                                },
+                                {
+                                    text: "❌ ОТКАЗАТЬСЯ",
+                                    callback_data: `reject_${currentOrderData.orderId}`
+                                }
+                            ]]
+                        }
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.ok) {
+                    telegramMessageId = data.result.message_id;
+                    
+                    // Создаем ссылку на сообщение в Telegram
+                    const chatIdForLink = Math.abs(CONFIG.TELEGRAM_CHAT_ID).toString();
+                    const link = chatIdForLink.startsWith('100') 
+                        ? `https://t.me/c/${chatIdForLink.slice(4)}/${telegramMessageId}`
+                        : `https://t.me/c/${chatIdForLink}/${telegramMessageId}`;
+                    
+                    return {
+                        success: true,
+                        messageId: telegramMessageId,
+                        chatId: CONFIG.TELEGRAM_CHAT_ID,
+                        link: link
+                    };
+                } else {
+                    throw new Error(data.description || 'Ошибка API Telegram');
+                }
+            } catch (error) {
+                console.error('Ошибка отправки в Telegram:', error);
+                return {
+                    success: false,
+                    error: error.message
+                };
+            }
+        }
+
+        function formatForTelegram(text) {
+            const lines = text.split('\n');
+            let result = '';
+            
+            lines.forEach(line => {
+                if (line.includes('ЗАКАЗ НА УБОРКУ')) {
+                    result += `🧹 <b>${line}</b>\n\n`;
+                } else if (line.includes('ОБЩАЯ ИНФОРМАЦИЯ')) {
+                    result += `📋 <b>${line}</b>\n`;
+                } else if (line.includes('ФИНАНСЫ')) {
+                    result += `\n💰 <b>${line}</b>\n`;
+                } else if (line.includes('ДАННЫЕ КЛИЕНТА')) {
+                    result += `\n👤 <b>${line}</b>\n`;
+                } else if (line.includes('ДОПОЛНИТЕЛЬНЫЕ УСЛУГИ')) {
+                    result += `\n🔧 <b>${line}</b>\n`;
+                } else if (line.includes('ОБОРУДОВАНИЕ')) {
+                    result += `\n🛠 <b>${line}</b>\n`;
+                } else if (line.includes('ХИМИЯ')) {
+                    result += `\n🧴 <b>${line}</b>\n`;
+                } else if (line.includes('ОПИСАНИЕ РАБОТ')) {
+                    result += `\n📝 <b>${line}</b>\n`;
+                } else if (line.includes('────') || line.includes('---')) {
+                    result += `${line}\n`;
+                } else if (line.trim()) {
+                    result += `${line}\n`;
+                }
+            });
+            
+            // Добавляем инструкцию
+            result += `\n───────────────\n`;
+            result += `🎯 <b>ИНСТРУКЦИЯ ДЛЯ МАСТЕРОВ:</b>\n`;
+            result += `1. Нажмите "✅ ВЫХОЖУ НА ЗАЯВКУ" для принятия\n`;
+            result += `2. Сообщение удалится автоматически\n`;
+            result += `3. Звоните клиенту: <code>${currentOrderData.customerPhone}</code>\n`;
+            result += `4. Подтвердите выезд менеджеру\n\n`;
+            result += `⏰ <i>Заявка действительна 30 минут</i>`;
+            
+            return result;
+        }
+
+        // =============== GOOGLE SHEETS ФУНКЦИИ (УПРОЩЕННЫЕ) ===============
+        async function saveToGoogleSheets() {
+            if (!currentOrderData) return { success: false, error: 'Нет данных' };
+            
+            try {
+                // Упрощенные данные для Google Таблиц
+                const sheetData = {
+                    action: 'add_order',
+                    timestamp: new Date().toISOString(),
+                    orderId: currentOrderData.orderId,
+                    manager: currentOrderData.manager,
+                    customer: currentOrderData.customerName,
+                    phone: currentOrderData.customerPhone,
+                    address: currentOrderData.customerAddress,
+                    area: currentOrderData.area,
+                    cleaningType: currentOrderData.cleaningType,
+                    difficulty: currentOrderData.difficulty,
+                    total: currentOrderData.orderTotal,
+                    masterPay: currentOrderData.masterPay,
+                    pets: currentOrderData.pets,
+                    telegramMessageId: telegramMessageId || ''
+                };
+                
+                console.log('Отправка в Google Sheets:', sheetData);
+                
+                // Отправляем данные методом POST
+                const response = await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors', // Важно: no-cors для обхода CORS
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams(sheetData).toString()
+                });
+                
+                // С no-cors мы не можем прочитать ответ, но запрос отправлен
+                console.log('Запрос отправлен в Google Sheets');
+                
+                return { success: true };
+                
+            } catch (error) {
+                console.error('Ошибка сохранения в Google Sheets:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        // Альтернативный метод через GET
+        async function saveToGoogleSheetsAlternative() {
+            if (!currentOrderData) return { success: false, error: 'Нет данных' };
+            
+            try {
+                const params = new URLSearchParams({
+                    action: 'add_order',
+                    timestamp: new Date().toISOString(),
+                    orderId: currentOrderData.orderId,
+                    manager: currentOrderData.manager,
+                    customer: currentOrderData.customerName,
+                    phone: currentOrderData.customerPhone,
+                    address: currentOrderData.customerAddress,
+                    area: currentOrderData.area,
+                    cleaningType: currentOrderData.cleaningType,
+                    total: currentOrderData.orderTotal,
+                    status: 'Новая'
+                }).toString();
+                
+                // Используем GET запрос
+                const response = await fetch(`${CONFIG.GOOGLE_SCRIPT_URL}?${params}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    return { success: true };
+                } else {
+                    return { success: false, error: result.error };
+                }
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        }
+
+        // =============== ОСНОВНЫЕ ФУНКЦИИ ===============
+        function updateDifficultyDisplay() {
+            const level = parseInt(difficultySlider.value);
+            const percentage = Math.round((CONFIG.PRICES.difficulty[level] - 1) * 100);
+            
+            const descriptions = {
+                1: "Стандартная уборка", 2: "Легкие загрязнения",
+                3: "Средние загрязнения", 4: "Сильные загрязнения",
+                5: "Животные, сложные условия", 6: "Очень сложные",
+                7: "Экстремальные случаи", 8: "Сверхсложные",
+                9: "Исключительно сложные", 10: "Максимальная сложность"
+            };
+            
+            difficultyValue.textContent = `Уровень ${level}: ${descriptions[level]} (+${percentage}%)`;
+            
+            difficultyLabels.forEach(label => {
+                const labelLevel = parseInt(label.getAttribute('data-level'));
+                label.classList.toggle('active', labelLevel === level);
+            });
+        }
+
+        function calculatePrice() {
+            // Получаем значения
+            const cleaningType = document.querySelector('#cleaningType .radio-option.selected')
+                .getAttribute('data-value');
+            const area = parseInt(areaSizeInput.value) || 10;
+            const difficulty = parseInt(difficultySlider.value);
+            
+            // Базовая стоимость
+            let basePrice = CONFIG.PRICES.cleaningTypes[cleaningType] * area;
+            
+            // Дополнительные услуги
+            let extraPrice = 0;
+            extraPrice += (parseInt(windowsCount.value) || 0) * parseInt(windowsType.value);
+            extraPrice += (parseInt(cabinetsCount.value) || 0) * CONFIG.PRICES.extras.cabinets;
+            extraPrice += (parseInt(fridgeCount.value) || 0) * CONFIG.PRICES.extras.fridge;
+            extraPrice += (parseInt(ovenCount.value) || 0) * CONFIG.PRICES.extras.oven;
+            extraPrice += (parseInt(hoodCount.value) || 0) * CONFIG.PRICES.extras.hood;
+            extraPrice += (parseInt(appliancesCount.value) || 0) * CONFIG.PRICES.extras.appliances;
+            
+            if (farTrip.value === '1000') {
+                extraPrice += CONFIG.PRICES.extras.farTrip;
+            }
+            
+            // Общая стоимость до коэффициента
+            let subtotal = basePrice + extraPrice;
+            
+            // Минимальная сумма
+            if (subtotal < CONFIG.PRICES.minOrder) {
+                subtotal = CONFIG.PRICES.minOrder;
+            }
+            
+            // Применяем коэффициент сложности
+            const difficultyMultiplier = CONFIG.PRICES.difficulty[difficulty];
+            let finalPrice = subtotal * difficultyMultiplier;
+            
+            // Округляем до целых
+            calculatedPrice = Math.round(finalPrice);
+            
+            // Заполняем поле суммы
+            orderTotal.value = calculatedPrice;
+            calculateMasterPay();
+            
+            // Отображаем результаты
+            displayPriceResults(basePrice, extraPrice, difficultyMultiplier, finalPrice);
+            
+            return calculatedPrice;
+        }
+
+        function displayPriceResults(basePrice, extraPrice, difficultyMultiplier, finalPrice) {
+            const percentage = Math.round((difficultyMultiplier - 1) * 100);
+            
+            basePriceEl.textContent = formatPrice(basePrice);
+            extraPriceEl.textContent = formatPrice(extraPrice);
+            difficultyPriceEl.textContent = `+${percentage}%`;
+            finalPriceEl.textContent = formatPrice(finalPrice);
+            totalPriceEl.textContent = formatPrice(finalPrice);
+        }
+
+        function formatPrice(price) {
+            return Math.round(price).toLocaleString('ru-RU') + ' руб';
+        }
+
+        function calculateMasterPay() {
+            const total = parseFloat(orderTotal.value) || 0;
+            const type = masterPayType.value;
+            
+            if (type === '60') {
+                masterPay.value = Math.round(total * 0.6);
+            } else if (type === '70') {
+                masterPay.value = Math.round(total * 0.7);
+            } else if (type === 'fixed') {
+                if (!masterPay.value) masterPay.value = '';
+            }
+        }
+
+        function showNextStepNotice() {
+            nextStepNotice.style.display = 'block';
+            setTimeout(() => {
+                nextStepNotice.style.display = 'none';
+            }, 5000);
+        }
+
+        function showOrderForm() {
+            step2.classList.add('active');
+            step1.classList.remove('active');
+            step1.classList.add('completed');
+            
+            orderSection.classList.add('active');
+            orderSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            
+            customerName.focus();
+            
+            showStatus('Перешли к заполнению заявки. Заполните данные клиента.', 'info');
+        }
+
+        function resetCalculator() {
+            cleaningTypeOptions.forEach(opt => opt.classList.remove('selected'));
+            document.querySelector('#cleaningType .radio-option').classList.add('selected');
+            
+            areaSizeInput.value = '60';
+            roomTypeSelect.value = 'apartment';
+            
+            difficultySlider.value = '1';
+            updateDifficultyDisplay();
+            
+            windowsCount.value = '0';
+            windowsType.value = '200';
+            cabinetsCount.value = '0';
+            fridgeCount.value = '0';
+            ovenCount.value = '0';
+            hoodCount.value = '0';
+            appliancesCount.value = '0';
+            farTrip.value = '0';
+            
+            petsOptions.forEach(opt => opt.classList.remove('selected'));
+            document.querySelector('#petsGroup .radio-option').classList.add('selected');
+            
+            equipmentOptions.forEach(opt => opt.classList.remove('selected'));
+            chemistryOptions.forEach(opt => opt.classList.remove('selected'));
+            
+            calculatePrice();
+            
+            showStatus('Калькулятор сброшен', 'success');
+        }
+
+        function showStatus(message, type = 'success') {
+            statusEl.className = 'status ' + type;
+            statusEl.innerHTML = message;
+            statusEl.style.display = 'block';
+            
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+            }, 5000);
+        }
+
+        // =============== СОЗДАНИЕ ЗАЯВКИ ===============
+        async function createOrder() {
+            // Проверка менеджера
+            const manager = managerNameInput.value.trim();
+            if (!manager) {
+                showStatus('❌ Укажите имя менеджера!', 'error');
+                managerNameInput.focus();
+                return;
+            }
+            
+            // Проверка обязательных полей
+            if (!customerName.value.trim()) {
+                showStatus('❌ Укажите имя клиента!', 'error');
+                customerName.focus();
+                return;
+            }
+            
+            if (!customerPhone.value.trim()) {
+                showStatus('❌ Укажите телефон клиента!', 'error');
+                customerPhone.focus();
+                return;
+            }
+            
+            if (!customerAddress.value.trim()) {
+                showStatus('❌ Укажите адрес уборки!', 'error');
+                customerAddress.focus();
+                return;
+            }
+            
+            // Генерация ID заказа
+            const orderId = 'CLN-' + Date.now().toString().slice(-8);
+            
+            // Получение выбранного оборудования
+            const equipment = [];
+            equipmentOptions.forEach(option => {
+                if (option.classList.contains('selected')) {
+                    equipment.push(option.getAttribute('data-value'));
+                }
+            });
+            
+            // Получение выбранной химии
+            const chemistry = [];
+            chemistryOptions.forEach(option => {
+                if (option.classList.contains('selected')) {
+                    chemistry.push(option.getAttribute('data-value'));
+                }
+            });
+            
+            // Получаем тип уборки по-русски
+            let cleaningTypeText = '';
+            switch(document.querySelector('#cleaningType .radio-option.selected').getAttribute('data-value')) {
+                case 'maintenance': cleaningTypeText = 'Поддерживающая'; break;
+                case 'general': cleaningTypeText = 'Генеральная'; break;
+                case 'post-renovation': cleaningTypeText = 'После ремонта'; break;
+            }
+            
+            // Получаем домашних животных
+            const pets = document.querySelector('#petsGroup .radio-option.selected').getAttribute('data-value');
+            
+            // Форматирование даты в день.месяц
+            const dateValue = orderDate.value;
+            let formattedDate = '';
+            if (dateValue) {
+                const [year, month, day] = dateValue.split('-');
+                formattedDate = `${day}.${month}`;
+            }
+            
+            // Подготовка данных
+            currentOrderData = {
+                manager: manager,
+                orderId: orderId,
+                
+                cleaningType: cleaningTypeText,
+                area: parseInt(areaSizeInput.value) || 0,
+                roomType: roomTypeSelect.options[roomTypeSelect.selectedIndex].text,
+                difficulty: parseInt(difficultySlider.value),
+                difficultyPercent: Math.round((CONFIG.PRICES.difficulty[parseInt(difficultySlider.value)] - 1) * 100),
+                calculatedPrice: calculatedPrice,
+                
+                windowsCount: parseInt(windowsCount.value) || 0,
+                windowsType: windowsType.options[windowsType.selectedIndex].text,
+                cabinetsCount: parseInt(cabinetsCount.value) || 0,
+                fridgeCount: parseInt(fridgeCount.value) || 0,
+                ovenCount: parseInt(ovenCount.value) || 0,
+                hoodCount: parseInt(hoodCount.value) || 0,
+                appliancesCount: parseInt(appliancesCount.value) || 0,
+                farTrip: farTrip.value === '1000' ? 'Да' : 'Нет',
+                pets: pets,
+                
+                customerName: customerName.value,
+                customerPhone: customerPhone.value,
+                customerAddress: customerAddress.value,
+                customerFlat: customerFlat.value,
+                orderDate: formattedDate,
+                orderTime: orderTime.value,
+                orderTotal: orderTotal.value || '0',
+                masterPay: masterPay.value || '0',
+                worksDescription: worksDescription.value || '',
+                equipment: equipment.join(', ') || '—',
+                chemistry: chemistry.join(', ') || '—'
+            };
+            
+            // Генерация текста заявки
+            generateOrderText();
+            
+            // Показываем загрузку
+            loadingEl.style.display = 'block';
+            
+            try {
+                // 1. Отправляем в Telegram
+                const telegramResult = await sendToTelegramGroup(resultArea.textContent);
+                
+                if (telegramResult.success) {
+                    telegramMessageId = telegramResult.messageId;
+                    
+                    // 2. Пытаемся сохранить в Google Таблицы
+                    const sheetsResult = await saveToGoogleSheets();
+                    
+                    if (sheetsResult.success) {
+                        showStatus(`✅ Заявка №${orderId} создана! Отправлена в Telegram и Google Таблицы`, 'success');
+                    } else {
+                        showStatus(`✅ Заявка №${orderId} отправлена в Telegram! (Google Таблицы: ${sheetsResult.error})`, 'warning');
+                    }
+                    
+                    // Создаем ссылку на Telegram
+                    if (telegramResult.link) {
+                        telegramLinkBtn.href = telegramResult.link;
+                        telegramLinkBtn.innerHTML = '<i class="fab fa-telegram"></i> Открыть в Telegram';
+                    }
+                    
+                } else {
+                    // Если Telegram не работает, только сохраняем в Google Таблицы
+                    const sheetsResult = await saveToGoogleSheets();
+                    
+                    if (sheetsResult.success) {
+                        showStatus(`✅ Заявка №${orderId} сохранена! (Telegram: ${telegramResult.error})`, 'warning');
+                    } else {
+                        showStatus(`✅ Заявка создана локально! (Telegram: ${telegramResult.error}, Google: ${sheetsResult.error})`, 'warning');
+                    }
+                }
+                
+                // Активируем шаг 3
+                step3.classList.add('active');
+                step2.classList.remove('active');
+                step2.classList.add('completed');
+                
+                // Показываем результат и кнопки
+                resultArea.style.display = 'block';
+                actionButtons.style.display = 'flex';
+                
+            } catch (error) {
+                showStatus(`❌ Ошибка: ${error.message}`, 'error');
+                resultArea.style.display = 'block';
+                actionButtons.style.display = 'flex';
+            } finally {
+                loadingEl.style.display = 'none';
+            }
+        }
+
+        function generateOrderText() {
+            if (!currentOrderData) return;
+            
+            let text = `🧹 ЗАКАЗ НА УБОРКУ №${currentOrderData.orderId}\n\n`;
+            
+            // ОБЩАЯ ИНФОРМАЦИЯ
+            text += `📋 ОБЩАЯ ИНФОРМАЦИЯ:\n────────────────────\n`;
+            text += `Менеджер: ${currentOrderData.manager}\n`;
+            text += `Тип уборки: ${currentOrderData.cleaningType}\n`;
+            text += `Площадь: ${currentOrderData.area} м²\n`;
+            text += `Тип помещения: ${currentOrderData.roomType}\n`;
+            text += `Сложность: Уровень ${currentOrderData.difficulty} (+${currentOrderData.difficultyPercent}%)\n`;
+            
+            if (currentOrderData.pets === 'есть') {
+                text += `Домашние животные: Да\n`;
+            }
+            
+            if (currentOrderData.orderDate) {
+                text += `Дата: ${currentOrderData.orderDate}\n`;
+            }
+            
+            if (currentOrderData.orderTime) {
+                text += `Время: ${currentOrderData.orderTime}\n`;
+            }
+            text += `\n`;
+            
+            // ФИНАНСЫ
+            text += `💰 ФИНАНСЫ:\n──────────\n`;
+            text += `Сумма заказа: ${currentOrderData.orderTotal} руб\n`;
+            
+            if (currentOrderData.masterPay && currentOrderData.masterPay !== '0') {
+                text += `Зарплата мастерам: ${currentOrderData.masterPay} руб\n`;
+            }
+            text += `\n`;
+            
+            // ДАННЫЕ КЛИЕНТА
+            text += `👤 ДАННЫЕ КЛИЕНТА:\n─────────────────\n`;
+            text += `Имя: ${currentOrderData.customerName}\n`;
+            text += `Телефон: ${currentOrderData.customerPhone}\n`;
+            text += `Адрес: ${currentOrderData.customerAddress}\n`;
+            
+            if (currentOrderData.customerFlat) {
+                text += `Квартира/офис: ${currentOrderData.customerFlat}\n`;
+            }
+            text += `\n`;
+            
+            // ДОПОЛНИТЕЛЬНЫЕ УСЛУГИ
+            let hasExtras = false;
+            let extrasText = '';
+            
+            if (currentOrderData.windowsCount > 0) {
+                extrasText += `Окна: ${currentOrderData.windowsCount} шт (${currentOrderData.windowsType})\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.cabinetsCount > 0) {
+                extrasText += `Шкафы: ${currentOrderData.cabinetsCount} шт\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.fridgeCount > 0) {
+                extrasText += `Холодильники: ${currentOrderData.fridgeCount} шт\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.ovenCount > 0) {
+                extrasText += `Духовые шкафы: ${currentOrderData.ovenCount} шт\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.hoodCount > 0) {
+                extrasText += `Вытяжки: ${currentOrderData.hoodCount} шт\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.appliancesCount > 0) {
+                extrasText += `Мелкая техника: ${currentOrderData.appliancesCount} шт\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.farTrip === 'Да') {
+                extrasText += `Дальний выезд: Да\n`;
+                hasExtras = true;
+            }
+            if (currentOrderData.pets === 'есть') {
+                extrasText += `Домашние животные: Да\n`;
+                hasExtras = true;
+            }
+            
+            if (hasExtras) {
+                text += `🔧 ДОПОЛНИТЕЛЬНЫЕ УСЛУГИ:\n────────────────────────\n`;
+                text += extrasText + `\n`;
+            }
+            
+            // ОБОРУДОВАНИЕ
+            if (currentOrderData.equipment && currentOrderData.equipment !== '—') {
+                text += `🛠 ОБОРУДОВАНИЕ:\n────────────────\n${currentOrderData.equipment}\n\n`;
+            }
+            
+            // ХИМИЯ
+            if (currentOrderData.chemistry && currentOrderData.chemistry !== '—') {
+                text += `🧴 ХИМИЯ:\n─────────\n${currentOrderData.chemistry}\n\n`;
+            }
+            
+            // ОПИСАНИЕ РАБОТ
+            if (currentOrderData.worksDescription) {
+                text += `📝 ОПИСАНИЕ РАБОТ:\n─────────────────\n${currentOrderData.worksDescription}\n\n`;
+            }
+            
+            text += `📱 ID заявки: ${currentOrderData.orderId}\n`;
+            text += `⏰ Создана: ${new Date().toLocaleString('ru-RU')}`;
+            
+            resultArea.textContent = text;
+        }
+
+        function copyToClipboard() {
+            const text = resultArea.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                showStatus('✅ Текст заявки скопирован в буфер обмена!', 'success');
+            }).catch(err => {
+                showStatus('❌ Не удалось скопировать текст', 'error');
+            });
+        }
+
+        function newOrder() {
+            // Сброс только формы клиента
+            customerName.value = '';
+            customerPhone.value = '';
+            customerAddress.value = '';
+            customerFlat.value = '';
+            worksDescription.value = '';
+            
+            // Сброс чекбоксов
+            equipmentOptions.forEach(opt => opt.classList.remove('selected'));
+            chemistryOptions.forEach(opt => opt.classList.remove('selected'));
+            
+            // Сброс шагов
+            step1.classList.add('active');
+            step1.classList.remove('completed');
+            step2.classList.remove('active', 'completed');
+            step3.classList.remove('active', 'completed');
+            
+            // Сброс правой колонки
+            orderSection.classList.remove('active');
+            
+            // Скрываем результат
+            resultArea.style.display = 'none';
+            actionButtons.style.display = 'none';
+            
+            // Прокрутка к началу
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            
+            showStatus('✅ Готово к созданию новой заявки! Начните с расчета стоимости.', 'success');
+        }
+    </script>
 </body>
 </html>
