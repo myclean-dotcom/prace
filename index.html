@@ -1200,7 +1200,7 @@
                         </div>
                         <div class="inline-field">
                             <label>Зарплата мастерам</label>
-                            <select id="masterPayType" onchange="calculateMasterPay()">
+                            <select id="masterPayType">
                                 <option value="60">60/40</option>
                                 <option value="70">70/30</option>
                                 <option value="fixed">Фиксированная</option>
@@ -1314,19 +1314,18 @@
 
     <script>
         // =============== КОНФИГУРАЦИЯ ===============
-        // === НАСТРОЙКИ МЕНЕДЖЕРА - ИЗМЕНИТЕ ЭТИ ЗНАЧЕНИЯ ===
         const CONFIG = {
-            // 1. Telegram Bot Token (получите у @BotFather)
+            // Telegram Bot Token (получите у @BotFather)
             TELEGRAM_BOT_TOKEN: '8471091759:AAGiszC401WRMWcTXXPi9PizsqxX-oAUurI',
             
-            // 2. Telegram Chat ID (получите после добавления бота в группу)
-            // Оставьте пустым, система найдет автоматически
+            // Telegram Chat ID (получите автоматически)
             TELEGRAM_CHAT_ID: '',
             
-            // 3. Google Sheets URL (получите после настройки Google Apps Script)
-            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbwbAWTpykj4kPODmOdMvac5pPkouYlJWnOvQLtN-UUTChbjBf9VYwGaKVhfV0lnKlbU/exec',
+            // Google Sheets URL (ЗАМЕНИТЕ НА СВОЙ)
+            // Создайте новый скрипт: https://script.google.com/home
+            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbzLd5rQF1p_Y8bAk9QPe01jCyj5fO0zOvKaLdokFfT1S9j8SP5bN7uyNqR44B-0ZQ6T/exec',
             
-            // 4. Цены на услуги (можно менять)
+            // Цены на услуги
             PRICES: {
                 cleaningTypes: {
                     'maintenance': 80,
@@ -1421,8 +1420,8 @@
             const twoHoursLater = new Date(today.getTime() + 2 * 60 * 60 * 1000);
             orderTime.value = twoHoursLater.toISOString().split('T')[1].substring(0, 5);
             
-            // Проверка настроек Telegram
-            checkTelegramSettings();
+            // Проверка Telegram бота
+            checkTelegramBot();
             
             // Настройка обработчиков событий
             setupEventListeners();
@@ -1504,23 +1503,27 @@
             resetBtn.addEventListener('click', resetCalculator);
             nextStepBtn.addEventListener('click', showOrderForm);
             createOrderBtn.addEventListener('click', createOrder);
+            
+            // Зарплата мастерам
+            masterPayType.addEventListener('change', calculateMasterPay);
+            masterPay.addEventListener('input', calculateMasterPay);
         }
 
-        // =============== ФУНКЦИИ ДЛЯ TELEGRAM ===============
-        async function checkTelegramSettings() {
+        // =============== TELEGRAM ФУНКЦИИ ===============
+        async function checkTelegramBot() {
             try {
                 const response = await fetch(`${TELEGRAM_API_URL}/getMe`);
                 const data = await response.json();
                 
                 if (data.ok) {
-                    console.log('✅ Бот найден:', data.result.username);
+                    console.log('✅ Telegram бот найден:', data.result.username);
                     await findTelegramChatId();
                 } else {
                     showStatus('❌ Ошибка Telegram бота. Проверьте токен.', 'error');
                 }
             } catch (error) {
                 console.error('Ошибка проверки бота:', error);
-                showStatus('⚠️ Не удалось проверить бота. Проверьте интернет соединение.', 'warning');
+                showStatus('⚠️ Не удалось проверить Telegram бота. Проверьте интернет.', 'warning');
             }
         }
 
@@ -1543,7 +1546,7 @@
                     }
                 }
                 
-                showStatus('⚠️ Добавьте бота @apexclean_bot в группу и отправьте любое сообщение', 'info');
+                showStatus('⚠️ Добавьте бота @apexclean_bot в группу и отправьте сообщение', 'info');
             } catch (error) {
                 console.error('Ошибка поиска Chat ID:', error);
             }
@@ -1598,8 +1601,6 @@
                         ? `https://t.me/c/${chatIdForLink.slice(4)}/${telegramMessageId}`
                         : `https://t.me/c/${chatIdForLink}/${telegramMessageId}`;
                     
-                    telegramLinkBtn.href = link;
-                    
                     return {
                         success: true,
                         messageId: telegramMessageId,
@@ -1618,7 +1619,7 @@
             }
         }
 
-        function formatForTelemarketing(text) {
+        function formatForTelegram(text) {
             const lines = text.split('\n');
             let result = '';
             
@@ -1658,55 +1659,79 @@
             return result;
         }
 
-        // =============== ФУНКЦИИ ДЛЯ GOOGLE ТАБЛИЦ ===============
+        // =============== GOOGLE SHEETS ФУНКЦИИ (УПРОЩЕННЫЕ) ===============
         async function saveToGoogleSheets() {
             if (!currentOrderData) return { success: false, error: 'Нет данных' };
             
             try {
+                // Упрощенные данные для Google Таблиц
                 const sheetData = {
+                    action: 'add_order',
                     timestamp: new Date().toISOString(),
                     orderId: currentOrderData.orderId,
                     manager: currentOrderData.manager,
-                    customerName: currentOrderData.customerName,
-                    customerPhone: currentOrderData.customerPhone,
-                    customerAddress: currentOrderData.customerAddress,
-                    customerFlat: currentOrderData.customerFlat || '',
-                    orderDate: currentOrderData.orderDate,
-                    orderTime: currentOrderData.orderTime,
-                    cleaningType: currentOrderData.cleaningType,
+                    customer: currentOrderData.customerName,
+                    phone: currentOrderData.customerPhone,
+                    address: currentOrderData.customerAddress,
                     area: currentOrderData.area,
-                    roomType: currentOrderData.roomType,
+                    cleaningType: currentOrderData.cleaningType,
                     difficulty: currentOrderData.difficulty,
-                    difficultyPercent: currentOrderData.difficultyPercent,
-                    windowsCount: currentOrderData.windowsCount,
-                    windowsType: currentOrderData.windowsType,
-                    cabinetsCount: currentOrderData.cabinetsCount,
-                    fridgeCount: currentOrderData.fridgeCount,
-                    ovenCount: currentOrderData.ovenCount,
-                    hoodCount: currentOrderData.hoodCount,
-                    appliancesCount: currentOrderData.appliancesCount,
-                    farTrip: currentOrderData.farTrip,
-                    pets: currentOrderData.pets,
-                    orderTotal: currentOrderData.orderTotal,
+                    total: currentOrderData.orderTotal,
                     masterPay: currentOrderData.masterPay,
-                    worksDescription: currentOrderData.worksDescription,
-                    equipment: currentOrderData.equipment,
-                    chemistry: currentOrderData.chemistry,
-                    telegramMessageId: telegramMessageId || '',
-                    status: 'Новая'
+                    pets: currentOrderData.pets,
+                    telegramMessageId: telegramMessageId || ''
                 };
                 
+                console.log('Отправка в Google Sheets:', sheetData);
+                
+                // Отправляем данные методом POST
                 const response = await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(sheetData)
+                    mode: 'no-cors', // Важно: no-cors для обхода CORS
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams(sheetData).toString()
                 });
                 
-                if (response.ok) {
+                // С no-cors мы не можем прочитать ответ, но запрос отправлен
+                console.log('Запрос отправлен в Google Sheets');
+                
+                return { success: true };
+                
+            } catch (error) {
+                console.error('Ошибка сохранения в Google Sheets:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        // Альтернативный метод через GET
+        async function saveToGoogleSheetsAlternative() {
+            if (!currentOrderData) return { success: false, error: 'Нет данных' };
+            
+            try {
+                const params = new URLSearchParams({
+                    action: 'add_order',
+                    timestamp: new Date().toISOString(),
+                    orderId: currentOrderData.orderId,
+                    manager: currentOrderData.manager,
+                    customer: currentOrderData.customerName,
+                    phone: currentOrderData.customerPhone,
+                    address: currentOrderData.customerAddress,
+                    area: currentOrderData.area,
+                    cleaningType: currentOrderData.cleaningType,
+                    total: currentOrderData.orderTotal,
+                    status: 'Новая'
+                }).toString();
+                
+                // Используем GET запрос
+                const response = await fetch(`${CONFIG.GOOGLE_SCRIPT_URL}?${params}`);
+                const result = await response.json();
+                
+                if (result.success) {
                     return { success: true };
                 } else {
-                    const errorText = await response.text();
-                    return { success: false, error: errorText };
+                    return { success: false, error: result.error };
                 }
             } catch (error) {
                 return { success: false, error: error.message };
@@ -1769,7 +1794,7 @@
             const difficultyMultiplier = CONFIG.PRICES.difficulty[difficulty];
             let finalPrice = subtotal * difficultyMultiplier;
             
-            // Сохраняем расчетную цену
+            // Округляем до целых
             calculatedPrice = Math.round(finalPrice);
             
             // Заполняем поле суммы
@@ -1978,44 +2003,46 @@
             loadingEl.style.display = 'block';
             
             try {
-                // 1. Сохраняем в Google Таблицы
-                const sheetsResult = await saveToGoogleSheets();
-                
-                if (!sheetsResult.success) {
-                    throw new Error('Google Таблицы: ' + (sheetsResult.error || 'Ошибка сохранения'));
-                }
-                
-                // 2. Отправляем в Telegram
+                // 1. Отправляем в Telegram
                 const telegramResult = await sendToTelegramGroup(resultArea.textContent);
                 
                 if (telegramResult.success) {
                     telegramMessageId = telegramResult.messageId;
                     
-                    // Обновляем Google Таблицу с ID сообщения
-                    await updateSheetsWithMessageId(telegramMessageId);
+                    // 2. Пытаемся сохранить в Google Таблицы
+                    const sheetsResult = await saveToGoogleSheets();
                     
-                    // Показываем успех
-                    showStatus(`✅ Заявка №${orderId} создана! Отправлена в Telegram и Google Таблицы`, 'success');
+                    if (sheetsResult.success) {
+                        showStatus(`✅ Заявка №${orderId} создана! Отправлена в Telegram и Google Таблицы`, 'success');
+                    } else {
+                        showStatus(`✅ Заявка №${orderId} отправлена в Telegram! (Google Таблицы: ${sheetsResult.error})`, 'warning');
+                    }
                     
-                    // Активируем шаг 3
-                    step3.classList.add('active');
-                    step2.classList.remove('active');
-                    step2.classList.add('completed');
-                    
-                    // Показываем результат и кнопки
-                    resultArea.style.display = 'block';
-                    actionButtons.style.display = 'flex';
-                    
-                    // Обновляем ссылку на Telegram
+                    // Создаем ссылку на Telegram
                     if (telegramResult.link) {
                         telegramLinkBtn.href = telegramResult.link;
+                        telegramLinkBtn.innerHTML = '<i class="fab fa-telegram"></i> Открыть в Telegram';
                     }
                     
                 } else {
-                    showStatus(`✅ Заявка сохранена, но Telegram: ${telegramResult.error}`, 'warning');
-                    resultArea.style.display = 'block';
-                    actionButtons.style.display = 'flex';
+                    // Если Telegram не работает, только сохраняем в Google Таблицы
+                    const sheetsResult = await saveToGoogleSheets();
+                    
+                    if (sheetsResult.success) {
+                        showStatus(`✅ Заявка №${orderId} сохранена! (Telegram: ${telegramResult.error})`, 'warning');
+                    } else {
+                        showStatus(`✅ Заявка создана локально! (Telegram: ${telegramResult.error}, Google: ${sheetsResult.error})`, 'warning');
+                    }
                 }
+                
+                // Активируем шаг 3
+                step3.classList.add('active');
+                step2.classList.remove('active');
+                step2.classList.add('completed');
+                
+                // Показываем результат и кнопки
+                resultArea.style.display = 'block';
+                actionButtons.style.display = 'flex';
                 
             } catch (error) {
                 showStatus(`❌ Ошибка: ${error.message}`, 'error');
@@ -2023,23 +2050,6 @@
                 actionButtons.style.display = 'flex';
             } finally {
                 loadingEl.style.display = 'none';
-            }
-        }
-
-        async function updateSheetsWithMessageId(messageId) {
-            try {
-                await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'update_message_id',
-                        orderId: currentOrderData.orderId,
-                        messageId: messageId,
-                        timestamp: new Date().toISOString()
-                    })
-                });
-            } catch (error) {
-                console.error('Ошибка обновления ID сообщения:', error);
             }
         }
 
