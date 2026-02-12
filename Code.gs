@@ -9,12 +9,19 @@ function doPost(e) {
   try {
     const raw = e.postData && e.postData.contents ? e.postData.contents : null;
     let body = {};
-    
+
     if (raw) {
-      try { 
-        body = JSON.parse(raw); 
-      } catch (err) { 
-        body = e.parameter || {}; 
+      try {
+        body = JSON.parse(raw);
+      } catch (err) {
+        body = e.parameter || {};
+      }
+    } else if (e.parameter && e.parameter.json) {
+      // Когда запрос отправлен как form-urlencoded с полем `json`
+      try {
+        body = JSON.parse(e.parameter.json);
+      } catch (err) {
+        body = e.parameter || {};
       }
     } else {
       body = e.parameter || {};
@@ -167,36 +174,46 @@ function handleTelegramUpdate(body) {
       const fullText = generateFullText(order);
 
       // Отправляем полное сообщение мастеру в личку
-      const dmResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, { 
-        method: 'post', 
-        payload: JSON.stringify({ 
-          chat_id: masterId, 
-          text: fullText, 
-          parse_mode: 'HTML' 
-        }) 
+      const dmResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'post',
+        payload: JSON.stringify({
+          chat_id: masterId,
+          text: fullText,
+          parse_mode: 'HTML'
+        })
       });
 
-      // Пытаемся удалить исходное сообщение из группы
+      // Пытаемся удалить исходное сообщение из группы — если нельзя удалить, очищаем клавиатуру
       try {
         const chatId = order['Telegram Chat ID'] || cb.message.chat.id;
         const messageId = order['Telegram Message ID'] || cb.message.message_id;
-        
+
         if (chatId && messageId) {
-          urlFetchJson(`https://api.telegram.org/bot${token}/deleteMessage`, { 
-            method: 'post', 
-            payload: JSON.stringify({ 
-              chat_id: chatId, 
-              message_id: messageId 
-            }) 
+          // Сначала попробуем удалить
+          const delResp = urlFetchJson(`https://api.telegram.org/bot${token}/deleteMessage`, {
+            method: 'post',
+            payload: JSON.stringify({ chat_id: chatId, message_id: messageId })
           });
+
+          // Если удалить не получилось, пробуем убрать клавиатуру (editMessageReplyMarkup)
+          if (!delResp || delResp.ok === false) {
+            urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+              method: 'post',
+              payload: JSON.stringify({ chat_id: chatId, message_id: messageId, reply_markup: {} })
+            });
+          }
         }
       } catch (e) {
-        Logger.log('Failed to delete message: ' + e);
+        Logger.log('Failed to delete/edit message: ' + e);
       }
 
-      // Подтверждаем событие кнопки (убираем меню)
-      answerCallback(token, callbackId, '✅ Заявка принята! Полная информация отправлена в личные сообщения.');
-      
+      // Подтверждаем событие кнопки и даём пользователю понятный ответ
+      if (dmResp && dmResp.ok) {
+        answerCallback(token, callbackId, '✅ Заявка принята! Полная информация отправлена в личные сообщения.');
+      } else {
+        answerCallback(token, callbackId, '⚠️ Заявка принята, но не удалось отправить личное сообщение. Попросите мастера начать чат с ботом.');
+      }
+
       return jsonResponse({ ok: true, masterAccepted: true }, 200);
     }
 

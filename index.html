@@ -1708,17 +1708,18 @@
             if (!currentOrderData) return { success: false, error: 'Нет данных' };
 
             try {
-                const response = await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
+                // Для совместимости с ограничениями CORS используем form-urlencoded
+                // и помещаем JSON в поле `json`. Серверный скрипт распарсит это поле.
+                const payload = new URLSearchParams();
+                payload.append('json', JSON.stringify(Object.assign({ action: 'create' }, currentOrderData)));
+
+                await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
                     method: 'POST',
                     mode: 'no-cors',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(currentOrderData)
+                    body: payload
                 });
 
-                // Когда mode: 'no-cors', response.json() недоступен
-                // Предполагаем успех, если запрос прошёл без ошибки
+                // При mode: 'no-cors' мы не видим ответ, считаем что отправлено
                 return { success: true };
             } catch (error) {
                 return { success: false, error: error.message };
