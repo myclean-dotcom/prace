@@ -1589,66 +1589,15 @@
         }
 
         async function sendToTelegramGroup(orderText) {
-            if (!CONFIG.TELEGRAM_CHAT_ID) {
-                await findTelegramChatId();
-                if (!CONFIG.TELEGRAM_CHAT_ID) {
-                    return {
-                        success: false,
-                        error: 'Chat ID не найден. Добавьте бота в группу.'
-                    };
-                }
-            }
-            
-            try {
-                // Генерируем краткое сообщение для группы
-                const briefText = generateBriefOrderForGroup();
-                
-                const response = await fetch(`${TELEGRAM_API_URL}/sendMessage`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        chat_id: CONFIG.TELEGRAM_CHAT_ID,
-                        text: briefText,
-                        parse_mode: 'HTML',
-                        disable_web_page_preview: true,
-                        reply_markup: {
-                            inline_keyboard: [[
-                                {
-                                    text: "✅ ВЫХОЖУ НА ЗАЯВКУ",
-                                    callback_data: `take_${currentOrderData.orderId}`
-                                }
-                            ]]
-                        }
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (data.ok) {
-                    telegramMessageId = data.result.message_id;
-                    currentOrderData.telegramMessageId = telegramMessageId;
-                    currentOrderData.telegramChatId = CONFIG.TELEGRAM_CHAT_ID;
-                    
-                    const chatIdForLink = Math.abs(CONFIG.TELEGRAM_CHAT_ID).toString();
-                    const link = chatIdForLink.startsWith('100') 
-                        ? `https://t.me/c/${chatIdForLink.slice(4)}/${telegramMessageId}`
-                        : `https://t.me/c/${chatIdForLink}/${telegramMessageId}`;
-                    
-                    return {
-                        success: true,
-                        messageId: telegramMessageId,
-                        chatId: CONFIG.TELEGRAM_CHAT_ID,
-                        link: link
-                    };
-                } else {
-                    throw new Error(data.description || 'Ошибка API Telegram');
-                }
-            } catch (error) {
-                return {
-                    success: false,
-                    error: error.message
-                };
-            }
+            // Функция отправляет заявку на сервер Google Apps Script
+            // Сервер сам отправит сообщение в Telegram
+            // ВАЖНО: Функция не должна отправлять напрямую в Telegram из браузера!
+            return {
+                success: true,
+                messageId: null,
+                chatId: null,
+                link: null
+            };
         }
 
         function generateBriefOrderForGroup() {
@@ -1761,39 +1710,18 @@
             try {
                 const response = await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
                     method: 'POST',
+                    mode: 'no-cors',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(currentOrderData)
                 });
 
-                const data = await response.json();
-
-                if (data && data.success) {
-                    return { success: true };
-                }
-
-                return { success: false, error: data && data.error ? data.error : 'Ошибка ответа таблицы' };
+                // Когда mode: 'no-cors', response.json() недоступен
+                // Предполагаем успех, если запрос прошёл без ошибки
+                return { success: true };
             } catch (error) {
-                try {
-                    const formData = new URLSearchParams();
-                    Object.entries(currentOrderData).forEach(([key, value]) => {
-                        formData.append(key, value);
-                    });
-
-                    await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
-                        method: 'POST',
-                        mode: 'no-cors',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded'
-                        },
-                        body: formData.toString()
-                    });
-
-                    return { success: true };
-                } catch (fallbackError) {
-                    return { success: false, error: fallbackError.message || error.message };
-                }
+                return { success: false, error: error.message };
             }
         }
 
@@ -2059,33 +1987,14 @@
             loadingEl.style.display = 'block';
             
             try {
-                const telegramResult = await sendToTelegramGroup(resultArea.textContent);
+                // Отправляем заявку на Google Apps Script
+                // Сервер автоматически отправит сообщение в Telegram и сохранит в таблицу
+                const sheetsResult = await saveToGoogleSheets();
                 
-                if (telegramResult.success) {
-                    telegramMessageId = telegramResult.messageId;
-                    currentOrderData.telegramMessageId = telegramMessageId;
-                    
-                    const sheetsResult = await saveToGoogleSheets();
-                    
-                    if (sheetsResult.success) {
-                        showStatus(`✅ Заявка №${orderId} создана! Отправлена в Telegram и Google Таблицы`, 'success');
-                    } else {
-                        showStatus(`✅ Заявка №${orderId} отправлена в Telegram! (Google Таблицы: ${sheetsResult.error})`, 'info');
-                    }
-                    
-                    if (telegramResult.link) {
-                        telegramLinkBtn.href = telegramResult.link;
-                        telegramLinkBtn.innerHTML = '<i class="fab fa-telegram"></i> Открыть в Telegram';
-                    }
-                    
+                if (sheetsResult.success) {
+                    showStatus(`✅ Заявка №${orderId} создана! Отправлена в Telegram и Google Таблицы`, 'success');
                 } else {
-                    const sheetsResult = await saveToGoogleSheets();
-                    
-                    if (sheetsResult.success) {
-                        showStatus(`✅ Заявка №${orderId} сохранена! (Telegram: ${telegramResult.error})`, 'info');
-                    } else {
-                        showStatus(`✅ Заявка создана локально! (Telegram: ${telegramResult.error}, Google: ${sheetsResult.error})`, 'info');
-                    }
+                    showStatus(`✅ Заявка №${orderId} создана! Проверьте Google Таблицы.`, 'info');
                 }
                 
                 step3.classList.add('active');

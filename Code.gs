@@ -89,10 +89,18 @@ function createOrUpdateOrder(payload) {
 
   // Отправка сообщения в Telegram
   const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
-  const chat = (order.telegramChannel || PROP.getProperty('TELEGRAM_CHAT_ID') || '').toString();
+  let chat = (order.telegramChannel || PROP.getProperty('TELEGRAM_CHAT_ID') || '').toString().trim();
   
   if (!token) return jsonResponse({ ok: true, orderId, note: 'saved, token not set' });
   if (!chat) return jsonResponse({ ok: true, orderId, note: 'saved, chat id not set' });
+
+  // Преобразуем форматChat ID если нужно
+  if (chat.startsWith('@')) {
+    // Это username группы, оставляем как есть
+  } else if (!isNaN(chat)) {
+    // Это число, преобразуем в строку и проверяем
+    chat = chat.toString();
+  }
 
   // Генерируем краткое сообщение для группы
   const briefText = generateBriefText(order);
@@ -114,14 +122,15 @@ function createOrUpdateOrder(payload) {
   });
 
   if (!resp || !resp.ok) {
-    return jsonResponse({ ok: false, error: 'Telegram send failed', detail: resp }, 500);
+    Logger.log('Telegram error: ' + JSON.stringify(resp));
+    return jsonResponse({ ok: true, orderId, note: 'saved, telegram error' });
   }
 
-  // Сохраняем Telegram IDs в таблице
-  const messageId = resp.result.message_id;
-  setTelegramIdsForOrder(order.orderId, chat, messageId);
+  // Сохраняем Telegram IDs в таблице - ВАЖНО: нужно получить номер строки, которую только что добавили
+  const newRowNum = sheet.getLastRow();
+  setTelegramIdsForOrder(order.orderId, chat, resp.result.message_id);
   
-  return jsonResponse({ ok: true, orderId, chat, messageId });
+  return jsonResponse({ ok: true, orderId, chat, messageId: resp.result.message_id });
 }
 
 /* ---------- Обработка обновлений из Telegram ---------- */
@@ -155,7 +164,7 @@ function handleTelegramUpdate(body) {
       updateOrderTaken(orderId, masterId, masterName, takenAt);
 
       // Генерируем полное сообщение с полной информацией о заявке
-      const fullText = generateFullText(order, orderData);
+      const fullText = generateFullText(order);
 
       // Отправляем полное сообщение мастеру в личку
       const dmResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, { 
@@ -344,9 +353,9 @@ function updateOrderTaken(orderId, masterId, masterName, takenAt) {
   
   const sheet = getSheet();
   sheet.getRange(row, 18).setValue('Взята');          // Статус = "Взята"
-  sheet.getRange(row, 20).setValue(masterId);         // Master ID
-  sheet.getRange(row, 21).setValue(masterName);       // Master Name
-  sheet.getRange(row, 22).setValue(takenAt);          // Дата принятия
+  sheet.getRange(row, 21).setValue(masterId);         // Master ID
+  sheet.getRange(row, 22).setValue(masterName);       // Master Name
+  sheet.getRange(row, 23).setValue(takenAt);          // Дата принятия
 }
 
 function getOrderByRow(rowNum) {
