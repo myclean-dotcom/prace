@@ -27,6 +27,11 @@ function doPost(e) {
       body = e.parameter || {};
     }
 
+    // Логируем вход для отладки (посмотрите Execution logs)
+    try { Logger.log('doPost raw: ' + String(raw)); } catch (e) {}
+    try { Logger.log('doPost parameters: ' + JSON.stringify(e.parameter || {})); } catch (e) {}
+    try { Logger.log('doPost body: ' + JSON.stringify(body)); } catch (e) {}
+
     // Обработка Telegram обновлений (callback_query или сообщения)
     if (body.callback_query || body.message || body.edited_message) {
       return handleTelegramUpdate(body);
@@ -651,6 +656,15 @@ function answerCallback(token, callbackId, text) {
 /* ---------- Утилиты ---------- */
 function jsonResponse(obj, code) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// Простая проверка доступности веб‑приложения
+function doGet(e) {
+  try {
+    return jsonResponse({ ok: true, info: 'webapp active' }, 200);
+  } catch (err) {
+    return jsonResponse({ ok: false, error: err.message }, 500);
+  }
 }
 
 // Функция для настройки свойств (запустить один раз через Apps Script)
