@@ -1373,7 +1373,7 @@
         const CONFIG = {
             TELEGRAM_BOT_TOKEN: '8471091759:AAGiszC401WRMWcTXXPi9PizsqxX-oAUurI',
             TELEGRAM_CHAT_ID: '',
-            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbynGftzk-bh4weDk0HtaY-3DzDBnZEhQA5-14_zEH9DQLizTt7JamtkB9n0SmqTdu3I/exec',
+            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbz3lOBHg9PTboUskRFWQf8khZD0GkMSXUyF7BkHgZg_sjUIO7sZdbS0kZi47CNAsT8Y/exec',
             PRICES: {
                 cleaningTypes: {
                     'maintenance': 80,
@@ -1599,14 +1599,15 @@
             }
             
             try {
-                const formattedText = formatForTelegram(orderText);
+                // Генерируем краткое сообщение для группы
+                const briefText = generateBriefOrderForGroup();
                 
                 const response = await fetch(`${TELEGRAM_API_URL}/sendMessage`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         chat_id: CONFIG.TELEGRAM_CHAT_ID,
-                        text: formattedText,
+                        text: briefText,
                         parse_mode: 'HTML',
                         disable_web_page_preview: true,
                         reply_markup: {
@@ -1614,10 +1615,6 @@
                                 {
                                     text: "✅ ВЫХОЖУ НА ЗАЯВКУ",
                                     callback_data: `take_${currentOrderData.orderId}`
-                                },
-                                {
-                                    text: "❌ ОТКАЗАТЬСЯ",
-                                    callback_data: `reject_${currentOrderData.orderId}`
                                 }
                             ]]
                         }
@@ -1628,6 +1625,8 @@
                 
                 if (data.ok) {
                     telegramMessageId = data.result.message_id;
+                    currentOrderData.telegramMessageId = telegramMessageId;
+                    currentOrderData.telegramChatId = CONFIG.TELEGRAM_CHAT_ID;
                     
                     const chatIdForLink = Math.abs(CONFIG.TELEGRAM_CHAT_ID).toString();
                     const link = chatIdForLink.startsWith('100') 
@@ -1651,45 +1650,108 @@
             }
         }
 
+        function generateBriefOrderForGroup() {
+            if (!currentOrderData) return '';
+            
+            let text = `🧹 <b>ЗАЯВКА №${currentOrderData.orderId}</b>\n`;
+            text += `───────────────────\n`;
+            text += `📍 Город: ${currentOrderData.customerCity}\n`;
+            text += `🔧 Тип уборки: ${currentOrderData.cleaningType}\n`;
+            text += `📏 Площадь: ${currentOrderData.area} м²\n`;
+            
+            if (currentOrderData.orderTime) {
+                text += `⏰ Время: ${currentOrderData.orderTime}\n`;
+            }
+            
+            text += `💰 Оплата мастеру: ${currentOrderData.masterPay || currentOrderData.orderTotal} руб\n`;
+            text += `📍 Адрес: ${currentOrderData.customerAddress}\n`;
+            
+            if (currentOrderData.worksDescription) {
+                text += `\n📝 Пожелания: ${currentOrderData.worksDescription}\n`;
+            }
+            
+            if (currentOrderData.equipment && currentOrderData.equipment !== '—') {
+                text += `\n🛠 Оборудование: ${currentOrderData.equipment}\n`;
+            }
+            
+            if (currentOrderData.chemistry && currentOrderData.chemistry !== '—') {
+                text += `🧴 Химия: ${currentOrderData.chemistry}\n`;
+            }
+            
+            return text;
+        }
+
+        function generateFullOrderForMaster() {
+            if (!currentOrderData) return '';
+            
+            let text = `🧹 <b>ПОЛНАЯ ИНФОРМАЦИЯ О ЗАЯВКЕ №${currentOrderData.orderId}</b>\n`;
+            text += `────────────────────────────────────\n\n`;
+            
+            text += `📋 <b>ОСНОВНАЯ ИНФОРМАЦИЯ:</b>\n`;
+            text += `───────────────────────\n`;
+            text += `Город: ${currentOrderData.customerCity}\n`;
+            text += `Тип уборки: ${currentOrderData.cleaningType}\n`;
+            text += `Площадь: ${currentOrderData.area} м²\n`;
+            text += `Тип помещения: ${currentOrderData.roomType}\n`;
+            
+            if (currentOrderData.orderDate) {
+                text += `Дата: ${currentOrderData.orderDate}\n`;
+            }
+            if (currentOrderData.orderTime) {
+                text += `Время: ${currentOrderData.orderTime}\n`;
+            }
+            text += `\n`;
+            
+            text += `👤 <b>ДАННЫЕ КЛИЕНТА:</b>\n`;
+            text += `──────────────────\n`;
+            text += `Имя: ${currentOrderData.customerName}\n`;
+            text += `Телефон: <code>${currentOrderData.customerPhone}</code>\n`;
+            text += `Адрес: ${currentOrderData.customerAddress}\n`;
+            if (currentOrderData.customerFlat) {
+                text += `Квартира/офис: ${currentOrderData.customerFlat}\n`;
+            }
+            text += `\n`;
+            
+            text += `💰 <b>ФИНАНСЫ:</b>\n`;
+            text += `──────────\n`;
+            text += `Сумма заказа: ${currentOrderData.orderTotal} руб\n`;
+            if (currentOrderData.masterPay && currentOrderData.masterPay !== '0') {
+                text += `Ваша оплата: ${currentOrderData.masterPay} руб\n`;
+            }
+            text += `\n`;
+            
+            if (currentOrderData.equipment && currentOrderData.equipment !== '—') {
+                text += `🛠 <b>ОБОРУДОВАНИЕ:</b>\n`;
+                text += `──────────────\n${currentOrderData.equipment}\n\n`;
+            }
+            
+            if (currentOrderData.chemistry && currentOrderData.chemistry !== '—') {
+                text += `🧴 <b>ХИМИЯ:</b>\n`;
+                text += `──────────\n${currentOrderData.chemistry}\n\n`;
+            }
+            
+            if (currentOrderData.worksDescription) {
+                text += `📝 <b>ПОЖЕЛАНИЯ/ОПИСАНИЕ:</b>\n`;
+                text += `────────────────────\n${currentOrderData.worksDescription}\n\n`;
+            }
+            
+            text += `───────────────────────────────────\n`;
+            text += `✅ <b>ИНСТРУКЦИЯ:</b>\n`;
+            text += `1. Звоните клиенту и уточняйте детали\n`;
+            text += `2. Отправьте фото при прибытии на заявку\n`;
+            text += `3. Отправьте фото выполненных работ\n`;
+            text += `4. Получите подпись акта и договора\n`;
+            text += `5. Проведите расчет с клиентом\n\n`;
+            text += `⏰ Вы получите напоминания:\n`;
+            text += `  • За 24 часа до заявки\n`;
+            text += `  • За 2 часа до заявки`;
+            
+            return text;
+        }
+
         function formatForTelegram(text) {
-            const lines = text.split('\n');
-            let result = '';
-            
-            lines.forEach(line => {
-                if (line.includes('ЗАКАЗ НА УБОРКУ')) {
-                    result += `🧹 <b>${line}</b>\n\n`;
-                } else if (line.includes('ОБЩАЯ ИНФОРМАЦИЯ')) {
-                    result += `📋 <b>${line}</b>\n`;
-                } else if (line.includes('ФИНАНСЫ')) {
-                    result += `\n💰 <b>${line}</b>\n`;
-                } else if (line.includes('ДАННЫЕ КЛИЕНТА')) {
-                    result += `\n👤 <b>${line}</b>\n`;
-                } else if (line.includes('ДОПОЛНИТЕЛЬНЫЕ УСЛУГИ')) {
-                    result += `\n🔧 <b>${line}</b>\n`;
-                } else if (line.includes('ОБОРУДОВАНИЕ')) {
-                    result += `\n🛠 <b>${line}</b>\n`;
-                } else if (line.includes('ХИМИЯ')) {
-                    result += `\n🧴 <b>${line}</b>\n`;
-                } else if (line.includes('ОПИСАНИЕ РАБОТ')) {
-                    result += `\n📝 <b>${line}</b>\n`;
-                } else if (line.includes('ЭТАПЫ ВЫПОЛНЕНИЯ')) {
-                    result += `\n✅ <b>${line}</b>\n`;
-                } else if (line.includes('────') || line.includes('---')) {
-                    result += `${line}\n`;
-                } else if (line.trim()) {
-                    result += `${line}\n`;
-                }
-            });
-            
-            result += `\n───────────────\n`;
-            result += `🎯 <b>ИНСТРУКЦИЯ ДЛЯ МАСТЕРОВ:</b>\n`;
-            result += `1. Нажмите "✅ ВЫХОЖУ НА ЗАЯВКУ" для принятия\n`;
-            result += `2. Сообщение удалится автоматически\n`;
-            result += `3. Звоните клиенту: <code>${currentOrderData.customerPhone}</code>\n`;
-            result += `4. Подтвердите выезд менеджеру\n\n`;
-            result += `⏰ <i>Заявка действительна 30 минут</i>`;
-            
-            return result;
+            // Эта функция больше не используется, но оставлена для совместимости
+            return text;
         }
 
         async function saveToGoogleSheets() {
@@ -2044,16 +2106,15 @@
         function generateOrderText() {
             if (!currentOrderData) return;
             
-            let text = `🧹 ЗАКАЗ НА УБОРКУ №${currentOrderData.orderId}\n\n`;
+            // Выводим полную версию в resultArea для менеджера
+            let text = `🧹 ЗАЯВКА НА УБОРКУ №${currentOrderData.orderId}\n\n`;
             
             text += `📋 ОБЩАЯ ИНФОРМАЦИЯ:\n────────────────────\n`;
             text += `Менеджер: ${currentOrderData.manager}\n`;
             text += `Город: ${currentOrderData.customerCity}\n`;
-            text += `Канал: ${currentOrderData.telegramChannel || '—'}\n`;
             text += `Тип уборки: ${currentOrderData.cleaningType}\n`;
-            text += `Плщадь: ${currentOrderData.area} м²\n`;
+            text += `Площадь: ${currentOrderData.area} м²\n`;
             text += `Тип помещения: ${currentOrderData.roomType}\n`;
-            text += `Сложность: Уровень ${currentOrderData.difficulty} (+${currentOrderData.difficultyPercent}%)\n`;
             
             if (currentOrderData.pets === 'есть') {
                 text += `Домашние животные: Да\n`;
@@ -2086,57 +2147,12 @@
             }
             text += `\n`;
             
-            let hasExtras = false;
-            let extrasText = '';
-            
-            if (currentOrderData.windowsCount > 0) {
-                extrasText += `Окна: ${currentOrderData.windowsCount} шт (${currentOrderData.windowsType})\n`;
-                hasExtras = true;
-            }
-            if (currentOrderData.cabinetsCount > 0) {
-                extrasText += `Шкафы: ${currentOrderData.cabinetsCount} шт\n`;
-                hasExtras = true;
-            }
-            if (currentOrderData.fridgeCount > 0) {
-                extrasText += `Холодильники: ${currentOrderData.fridgeCount} шт\n`;
-                hasExtras = true;
-            }
-            if (currentOrderData.ovenCount > 0) {
-                extrasText += `Духовые шкафы: ${currentOrderData.ovenCount} шт\n`;
-                hasExtras = true;
-            }
-            if (currentOrderData.hoodCount > 0) {
-                extrasText += `Вытяжки: ${currentOrderData.hoodCount} шт\n`;
-                hasExtras = true;
-            }
-            if (currentOrderData.appliancesCount > 0) {
-                extrasText += `Мелкая техника: ${currentOrderData.appliancesCount} шт\n`;
-                hasExtras = true;
-            }
-            if (currentOrderData.farTrip === 'Да') {
-                extrasText += `Дальний выезд: Да\n`;
-                hasExtras = true;
-            }
-            if (currentOrderData.pets === 'есть') {
-                extrasText += `Домашние животные: Да\n`;
-                hasExtras = true;
-            }
-            
-            if (hasExtras) {
-                text += `🔧 ДОПОЛНИТЕЛЬНЫЕ УСЛУГИ:\n────────────────────────\n`;
-                text += extrasText + `\n`;
-            }
-            
             if (currentOrderData.equipment && currentOrderData.equipment !== '—') {
                 text += `🛠 ОБОРУДОВАНИЕ:\n────────────────\n${currentOrderData.equipment}\n\n`;
             }
             
             if (currentOrderData.chemistry && currentOrderData.chemistry !== '—') {
                 text += `🧴 ХИМИЯ:\n────────\n${currentOrderData.chemistry}\n\n`;
-            }
-
-            if (currentOrderData.workflow && currentOrderData.workflow !== '—') {
-                text += `✅ ЭТАПЫ ВЫПОЛНЕНИЯ:\n───────────────────\n${currentOrderData.workflow}\n\n`;
             }
             
             if (currentOrderData.worksDescription) {
