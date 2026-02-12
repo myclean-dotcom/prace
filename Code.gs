@@ -266,7 +266,17 @@ function handleTelegramUpdate(body) {
 
 /* ---------- Функции для работы с таблицей (русские заголовки) ---------- */
 function getSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  // Попытаемся открыть по ID из Script Properties, если задано (надёжнее для standalone деплоев)
+  const ssId = PROP.getProperty('SPREADSHEET_ID') || null;
+  let ss = null;
+  try {
+    if (ssId) ss = SpreadsheetApp.openById(ssId);
+  } catch (e) {
+    Logger.log('Failed to open by id: ' + ssId + ' — ' + e.message);
+    ss = null;
+  }
+
+  if (!ss) ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_NAME);
   
   if (!sheet) {
