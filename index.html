@@ -1636,10 +1636,20 @@
             if (!currentOrderData) return { success: false, error: 'Нет данных' };
 
             try {
-                // Для совместимости с ограничениями CORS используем form-urlencoded
-                // и помещаем JSON в поле `json`. Серверный скрипт распарсит это поле.
+                // Для максимальной совместимости отправляем:
+                // 1) плоские поля формы (action, orderId, customerName, ...)
+                // 2) полный JSON в поле `json`
+                // Тогда backend обработает даже если JSON-парсинг не сработает.
                 const payload = new URLSearchParams();
-                payload.append('json', JSON.stringify(Object.assign({ action: 'create' }, currentOrderData)));
+                const requestData = Object.assign({ action: 'create' }, currentOrderData);
+
+                payload.append('action', 'create');
+                Object.keys(currentOrderData || {}).forEach((key) => {
+                    const value = currentOrderData[key];
+                    if (value === undefined || value === null) return;
+                    payload.append(key, String(value));
+                });
+                payload.append('json', JSON.stringify(requestData));
 
                 const resp = await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
                     method: 'POST',
