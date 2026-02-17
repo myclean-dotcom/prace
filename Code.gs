@@ -4,7 +4,7 @@
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
 const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
-const BUILD_VERSION = '2026-02-17-stable-take-flow-v1';
+const BUILD_VERSION = '2026-02-17-stable-take-flow-v2';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
@@ -305,6 +305,11 @@ function handleTelegramUpdate(body) {
           }
 
           const order = getOrderByRow(rowNum);
+          const effectiveOrderId = String(order['Номер заявки'] || orderId || '').trim();
+          if (!effectiveOrderId) {
+            answerCallback(token, callbackId, '❌ Не удалось определить ID заявки.');
+            return jsonResponse({ ok: false, error: 'Effective order id missing' }, 200);
+          }
           const masterId = String(from.id || '').trim();
           let masterName = `${from.first_name || ''} ${from.last_name || ''}`.trim();
           if (!masterName && from.username) masterName = '@' + from.username;
@@ -328,22 +333,43 @@ function handleTelegramUpdate(body) {
             return jsonResponse({ ok: true, alreadyTaken: true }, 200);
           }
 
-          const takenAt = new Date().toLocaleString('ru-RU');
-          updateOrderTaken(orderId, masterId, masterName, takenAt);
+          const takenAt = formatCreatedAt(new Date());
+          updateOrderTakenByRow(rowNum, masterId, masterName, takenAt);
           answerCallback(token, callbackId, '✅ Заявка принята. Отправляю подробности в личные сообщения...');
 
           // Получаем обновленную строку для отправки полной информации мастеру.
           const updatedOrder = getOrderByRow(rowNum);
           const fullText = generateFullText(updatedOrder, updatedOrder);
+          let dmResp = { ok: true, skipped: true };
+          const dmAlreadySent = isMasterDmAlreadySent(effectiveOrderId);
+          if (!dmAlreadySent) {
+            dmResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+              method: 'post',
+              payload: JSON.stringify({
+                chat_id: masterId,
+                text: fullText,
+                parse_mode: 'HTML'
+              })
+            });
 
-          const dmResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: 'post',
-            payload: JSON.stringify({
-              chat_id: masterId,
-              text: fullText,
-              parse_mode: 'HTML'
-            })
-          });
+            if (dmResp && dmResp.ok) {
+              const clientMsg = buildClientReadyMessage(updatedOrder);
+              const secondResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+                method: 'post',
+                payload: JSON.stringify({
+                  chat_id: masterId,
+                  text: `📩 Сообщение клиенту (скопируйте и отправьте):\n\n<code>${escapeTelegramHtml(clientMsg)}</code>`,
+                  parse_mode: 'HTML'
+                })
+              });
+              if (!secondResp || secondResp.ok !== true) {
+                Logger.log('Failed to send second DM for order ' + effectiveOrderId + ': ' + JSON.stringify(secondResp));
+              }
+              markMasterDmSent(effectiveOrderId, masterId);
+            }
+          } else {
+            Logger.log('DM already sent for order ' + effectiveOrderId + ', skip duplicate send');
+          }
 
           // Минимальный стабильный путь: только убираем кнопку у сообщения в группе.
           try {
@@ -365,7 +391,7 @@ function handleTelegramUpdate(body) {
           }
 
           if (!dmResp || dmResp.ok !== true) {
-            Logger.log('Failed to send DM for order ' + orderId + ': ' + JSON.stringify(dmResp));
+            Logger.log('Failed to send DM for order ' + effectiveOrderId + ': ' + JSON.stringify(dmResp));
           }
 
           return jsonResponse({ ok: true, masterAccepted: true }, 200);
@@ -670,16 +696,19 @@ function setTelegramIdsForOrder(orderId, chatId, messageId) {
   setCellByHeader(sheet, row, headerMap, 'Telegram Message ID', messageId);
 }
 
+function updateOrderTakenByRow(rowNum, masterId, masterName, takenAt) {
+  const sheet = getSheet();
+  const headerMap = getHeaderMap(sheet);
+  setCellByHeader(sheet, rowNum, headerMap, 'Статус', 'Взята');
+  setCellByHeader(sheet, rowNum, headerMap, 'Master ID', masterId);
+  setCellByHeader(sheet, rowNum, headerMap, 'Master Name', masterName);
+  setCellByHeader(sheet, rowNum, headerMap, 'Дата принятия', takenAt);
+}
+
 function updateOrderTaken(orderId, masterId, masterName, takenAt) {
   const row = findOrderRowById(orderId);
   if (!row) return;
-  
-  const sheet = getSheet();
-  const headerMap = getHeaderMap(sheet);
-  setCellByHeader(sheet, row, headerMap, 'Статус', 'Взята');
-  setCellByHeader(sheet, row, headerMap, 'Master ID', masterId);
-  setCellByHeader(sheet, row, headerMap, 'Master Name', masterName);
-  setCellByHeader(sheet, row, headerMap, 'Дата принятия', takenAt);
+  updateOrderTakenByRow(row, masterId, masterName, takenAt);
 }
 
 function getOrderByRow(rowNum) {
@@ -846,8 +875,26 @@ function pad2(value) {
   return String(value).padStart(2, '0');
 }
 
+function spreadsheetSerialToDate(value) {
+  const n = Number(value);
+  if (!isFinite(n) || n <= 0) return null;
+
+  const millisPerDay = 24 * 60 * 60 * 1000;
+  const excelEpochUtc = Date.UTC(1899, 11, 30); // Google Sheets serial epoch.
+  const ms = excelEpochUtc + Math.round(n * millisPerDay);
+  const dt = new Date(ms);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
 function formatDateForDisplay(value) {
   if (value === null || value === undefined || value === '') return '';
+
+  if (typeof value === 'number') {
+    const serialDate = spreadsheetSerialToDate(value);
+    if (serialDate) {
+      return Utilities.formatDate(serialDate, Session.getScriptTimeZone(), 'dd.MM.yyyy');
+    }
+  }
 
   if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
     return Utilities.formatDate(value, Session.getScriptTimeZone(), 'dd.MM.yyyy');
@@ -855,6 +902,12 @@ function formatDateForDisplay(value) {
 
   const raw = String(value).trim();
   if (!raw) return '';
+  if (/^\d+([.,]\d+)?$/.test(raw)) {
+    const serialDate = spreadsheetSerialToDate(raw.replace(',', '.'));
+    if (serialDate) {
+      return Utilities.formatDate(serialDate, Session.getScriptTimeZone(), 'dd.MM.yyyy');
+    }
+  }
 
   const dmY = raw.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?$/);
   if (dmY) {
@@ -887,12 +940,30 @@ function formatDateForDisplay(value) {
 function formatTimeForDisplay(value) {
   if (value === null || value === undefined || value === '') return '';
 
+  if (typeof value === 'number') {
+    const serialDate = spreadsheetSerialToDate(value);
+    if (serialDate) {
+      return Utilities.formatDate(serialDate, Session.getScriptTimeZone(), 'HH:mm');
+    }
+  }
+
   if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
     return Utilities.formatDate(value, Session.getScriptTimeZone(), 'HH:mm');
   }
 
   const raw = String(value).trim();
   if (!raw) return '';
+  if (/^\d+([.,]\d+)?$/.test(raw)) {
+    const serialDate = spreadsheetSerialToDate(raw.replace(',', '.'));
+    if (serialDate) {
+      return Utilities.formatDate(serialDate, Session.getScriptTimeZone(), 'HH:mm');
+    }
+  }
+
+  const hhmmInside = raw.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\b/);
+  if (hhmmInside) {
+    return `${pad2(hhmmInside[1])}:${hhmmInside[2]}`;
+  }
 
   const hhmm = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
   if (hhmm) {
@@ -978,20 +1049,7 @@ function generateFullText(orderRow, orderData) {
   const chemistry = String(orderRow['Химия'] || '').trim() || '—';
   const description = String(orderRow['Описание работ'] || '').trim();
 
-  let clientMessage = 'Здравствуйте! Я мастер по клинингу.';
-  if (date && time) {
-    clientMessage += ` Приеду к вам ${date} в ${time}.`;
-  } else if (date) {
-    clientMessage += ` Приеду к вам ${date}.`;
-  } else if (time) {
-    clientMessage += ` Приеду к вам в ${time}.`;
-  } else {
-    clientMessage += ' Время и дату уточню дополнительно.';
-  }
-  if (fullAddress) {
-    clientMessage += ` Адрес: ${fullAddress}.`;
-  }
-  clientMessage += ' До встречи!';
+  const clientMessage = buildClientReadyMessage(orderRow);
 
   let text = `🧹 <b>ПОЛНАЯ ИНФОРМАЦИЯ О ЗАЯВКЕ №${orderId}</b>\n`;
   text += `────────────────────────────────────\n\n`;
@@ -1032,6 +1090,31 @@ function generateFullText(orderRow, orderData) {
   text += `<code>${escapeTelegramHtml(clientMessage)}</code>`;
 
   return text;
+}
+
+function buildClientReadyMessage(orderRow) {
+  const date = formatDateForDisplay(orderRow['Дата уборки']);
+  const time = formatTimeForDisplay(orderRow['Время уборки']);
+  const addressParts = [orderRow['Улица и дом'], orderRow['Квартира/офис']].filter(function(v) {
+    return String(v || '').trim();
+  });
+  const fullAddress = addressParts.join(', ');
+
+  let msg = 'Здравствуйте! Я мастер по клинингу.';
+  if (date && time) {
+    msg += ` Приеду к вам ${date} в ${time}.`;
+  } else if (date) {
+    msg += ` Приеду к вам ${date}.`;
+  } else if (time) {
+    msg += ` Приеду к вам в ${time}.`;
+  } else {
+    msg += ' Время и дату уточню дополнительно.';
+  }
+  if (fullAddress) {
+    msg += ` Адрес: ${fullAddress}.`;
+  }
+  msg += ' До встречи!';
+  return msg;
 }
 
 /* ---------- Вспомогательные функции Telegram ---------- */
@@ -1092,6 +1175,21 @@ function isDuplicateCallback(callbackId) {
 
   cache.put(key, '1', 120);
   return false;
+}
+
+function isMasterDmAlreadySent(orderId) {
+  const id = String(orderId || '').trim();
+  if (!id) return false;
+  const key = 'ORDER_DM_SENT_' + id;
+  return String(PROP.getProperty(key) || '').trim() !== '';
+}
+
+function markMasterDmSent(orderId, masterId) {
+  const id = String(orderId || '').trim();
+  if (!id) return;
+  const by = String(masterId || '').trim() || 'unknown';
+  const key = 'ORDER_DM_SENT_' + id;
+  PROP.setProperty(key, by + '|' + new Date().toISOString());
 }
 
 /* ---------- Утилиты ---------- */
@@ -1388,9 +1486,6 @@ function getTelegramAllowedUpdates() {
 
 function resolveWebhookExecUrl(preferredUrl) {
   let url = String(preferredUrl || '').trim();
-  if (!url) {
-    url = String(PROP.getProperty('TELEGRAM_WEBHOOK_URL') || '').trim();
-  }
   if (!url) {
     url = DEFAULT_WEBAPP_EXEC_URL;
   }
