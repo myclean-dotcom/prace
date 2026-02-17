@@ -255,67 +255,104 @@ function handleTelegramUpdate(body) {
     
     if (data.indexOf('take_') === 0) {
       const orderId = data.split('take_')[1];
-      const rowNum = findOrderRowById(orderId);
-      
-      if (!rowNum) {
-        answerCallback(token, callbackId, '❌ Заявка не найдена');
-        return jsonResponse({ ok: false, error: 'Order not found' }, 200);
+      const lock = LockService.getScriptLock();
+      try {
+        lock.waitLock(8000);
+      } catch (e) {
+        answerCallback(token, callbackId, '⏳ Попробуйте снова через пару секунд.');
+        return jsonResponse({ ok: true, busy: true }, 200);
       }
 
-      // Получаем данные заявки
-      const order = getOrderByRow(rowNum);
-      const masterName = `${from.first_name || ''} ${from.last_name || ''}`.trim();
-      const masterId = from.id;
-      const takenAt = new Date().toLocaleString('ru-RU');
-
-      // Обновляем таблицу: добавляем информацию о мастере
-      updateOrderTaken(orderId, masterId, masterName, takenAt);
-
-      // Генерируем полное сообщение с полной информацией о заявке
-      const fullText = generateFullText(order, order);
-
-      // Отправляем полное сообщение мастеру в личку
-      const dmResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'post',
-        payload: JSON.stringify({
-          chat_id: masterId,
-          text: fullText,
-          parse_mode: 'HTML'
-        })
-      });
-
-      // Пытаемся удалить исходное сообщение из группы — если нельзя удалить, очищаем клавиатуру
       try {
-        const chatId = order['Telegram Chat ID'] || cb.message.chat.id;
-        const messageId = order['Telegram Message ID'] || cb.message.message_id;
+        const rowNum = findOrderRowById(orderId);
+        if (!rowNum) {
+          answerCallback(token, callbackId, '❌ Заявка не найдена');
+          return jsonResponse({ ok: false, error: 'Order not found' }, 200);
+        }
 
-        if (chatId && messageId) {
-          // Сначала попробуем удалить
-          const delResp = urlFetchJson(`https://api.telegram.org/bot${token}/deleteMessage`, {
-            method: 'post',
-            payload: JSON.stringify({ chat_id: chatId, message_id: messageId })
-          });
+        const order = getOrderByRow(rowNum);
+        const masterId = String(from.id || '').trim();
+        let masterName = `${from.first_name || ''} ${from.last_name || ''}`.trim();
+        if (!masterName && from.username) masterName = '@' + from.username;
+        if (!masterName) masterName = 'Мастер';
+        if (!masterId) {
+          answerCallback(token, callbackId, '❌ Не удалось определить ваш Telegram ID.');
+          return jsonResponse({ ok: false, error: 'Master id missing' }, 200);
+        }
 
-          // Если удалить не получилось, пробуем убрать клавиатуру (editMessageReplyMarkup)
-          if (!delResp || delResp.ok === false) {
+        // Блокируем повторное взятие заявки другим мастером.
+        const currentStatus = String(order['Статус'] || '').toLowerCase();
+        const existingMasterId = String(order['Master ID'] || '').trim();
+        const existingMasterName = String(order['Master Name'] || '').trim();
+        if (currentStatus.indexOf('взята') !== -1 && existingMasterId) {
+          if (existingMasterId === masterId) {
+            answerCallback(token, callbackId, 'ℹ️ Вы уже приняли эту заявку.');
+            return jsonResponse({ ok: true, alreadyTakenBySameMaster: true }, 200);
+          }
+
+          const takenBy = existingMasterName || 'другим мастером';
+          answerCallback(token, callbackId, `❌ Заявка уже принята: ${takenBy}`);
+          return jsonResponse({ ok: true, alreadyTaken: true }, 200);
+        }
+
+        const takenAt = new Date().toLocaleString('ru-RU');
+        updateOrderTaken(orderId, masterId, masterName, takenAt);
+
+        // Получаем обновленную строку для отправки полной информации мастеру.
+        const updatedOrder = getOrderByRow(rowNum);
+        const fullText = generateFullText(updatedOrder, updatedOrder);
+
+        const dmResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'post',
+          payload: JSON.stringify({
+            chat_id: masterId,
+            text: fullText,
+            parse_mode: 'HTML'
+          })
+        });
+
+        // Убираем кнопку из группового сообщения и пишем, кто принял заявку.
+        try {
+          const chatId = updatedOrder['Telegram Chat ID'] || (cb.message && cb.message.chat ? cb.message.chat.id : '');
+          const messageId = updatedOrder['Telegram Message ID'] || (cb.message ? cb.message.message_id : '');
+
+          if (chatId && messageId) {
             urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
               method: 'post',
-              payload: JSON.stringify({ chat_id: chatId, message_id: messageId, reply_markup: {} })
+              payload: JSON.stringify({
+                chat_id: chatId,
+                message_id: messageId,
+                reply_markup: { inline_keyboard: [] }
+              })
             });
           }
+
+          if (chatId) {
+            const safeMasterName = escapeTelegramHtml(masterName);
+            urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+              method: 'post',
+              payload: JSON.stringify({
+                chat_id: chatId,
+                text: `✅ Заявка <code>${orderId}</code> принята мастером <b>${safeMasterName}</b>`,
+                parse_mode: 'HTML',
+                disable_web_page_preview: true
+              })
+            });
+          }
+        } catch (e) {
+          Logger.log('Failed to update group message: ' + e);
         }
-      } catch (e) {
-        Logger.log('Failed to delete/edit message: ' + e);
-      }
 
-      // Подтверждаем событие кнопки и даём пользователю понятный ответ
-      if (dmResp && dmResp.ok) {
-        answerCallback(token, callbackId, '✅ Заявка принята! Полная информация отправлена в личные сообщения.');
-      } else {
-        answerCallback(token, callbackId, '⚠️ Заявка принята, но не удалось отправить личное сообщение. Попросите мастера начать чат с ботом.');
-      }
+        if (dmResp && dmResp.ok) {
+          answerCallback(token, callbackId, '✅ Заявка принята! Полная информация отправлена в личные сообщения.');
+        } else {
+          answerCallback(token, callbackId, '⚠️ Заявка принята, но не удалось отправить личное сообщение. Нажмите /start боту в личке.');
+        }
 
-      return jsonResponse({ ok: true, masterAccepted: true }, 200);
+        return jsonResponse({ ok: true, masterAccepted: true }, 200);
+      } finally {
+        try { lock.releaseLock(); } catch (e) {}
+      }
     }
 
     if (data.indexOf('reject_') === 0) {
@@ -863,6 +900,13 @@ function urlFetchJson(url, options) {
     Logger.log('Failed to parse JSON: ' + text);
     return { ok: false, raw: text }; 
   }
+}
+
+function escapeTelegramHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function answerCallback(token, callbackId, text) {
