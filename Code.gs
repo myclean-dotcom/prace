@@ -1394,6 +1394,16 @@ function __diagnoseTelegramButton() {
   const currentWebhookUrl = String(result.url || '');
   const pendingCount = Number(result.pending_update_count || 0);
   const lastError = String(result.last_error_message || '');
+  const publicCheck = __checkWebhookPublicAccess();
+
+  let advice = 'Webhook выглядит корректно. Если кнопка не работает, нажмите ее и повторно запустите __diagnoseTelegramButton().';
+  if (!currentWebhookUrl || currentWebhookUrl.indexOf('/exec') === -1) {
+    advice = 'Webhook не на /exec. Запустите __setWebhookProd().';
+  } else if (lastError.indexOf('401') !== -1 || (publicCheck && publicCheck.statusCode === 401)) {
+    advice = 'Telegram получает 401 от Web App. Переразверните Web App: "Выполнять от моего имени" и "Доступ: Все", затем запустите __setWebhookProd().';
+  } else if (publicCheck && !publicCheck.okPublic) {
+    advice = 'Web App недоступен публично. Проверьте настройки доступа деплоя и заново выполните __setWebhookProd().';
+  }
 
   const diag = {
     ok: true,
@@ -1403,11 +1413,43 @@ function __diagnoseTelegramButton() {
     webhookMatchesCurrentDeployment: !!expectedExecUrl && currentWebhookUrl === expectedExecUrl,
     pendingUpdateCount: pendingCount,
     lastError: lastError || 'нет',
-    advice: (!currentWebhookUrl || currentWebhookUrl.indexOf('/exec') === -1)
-      ? 'Запустите __setWebhookProd()'
-      : 'Webhook выглядит корректно. Если кнопка не работает, нажмите ее и повторно запустите __diagnoseTelegramButton().'
+    publicAccess: publicCheck,
+    advice: advice
   };
 
   Logger.log(JSON.stringify(diag));
   return diag;
+}
+
+function __checkWebhookPublicAccess() {
+  let serviceUrl = '';
+  try {
+    serviceUrl = ScriptApp.getService().getUrl();
+  } catch (e) {
+    serviceUrl = '';
+  }
+
+  const url = normalizeWebhookUrlToExec(serviceUrl);
+  if (!url) {
+    return { ok: false, error: 'serviceUrl not available' };
+  }
+
+  try {
+    const resp = UrlFetchApp.fetch(url + '?health=1', {
+      method: 'get',
+      muteHttpExceptions: true,
+      followRedirects: true
+    });
+    const statusCode = resp.getResponseCode();
+    const body = resp.getContentText() || '';
+    return {
+      ok: true,
+      url: url,
+      statusCode: statusCode,
+      okPublic: statusCode >= 200 && statusCode < 300,
+      bodySnippet: body.slice(0, 200)
+    };
+  } catch (e) {
+    return { ok: false, url: url, error: e.message };
+  }
 }
