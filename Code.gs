@@ -176,7 +176,7 @@ function handleTelegramUpdate(body) {
       updateOrderTaken(orderId, masterId, masterName, takenAt);
 
       // Генерируем полное сообщение с полной информацией о заявке
-      const fullText = generateFullText(order);
+      const fullText = generateFullText(order, order);
 
       // Отправляем полное сообщение мастеру в личку
       const dmResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -332,7 +332,7 @@ function findOrderRowByMasterId(masterId) {
   const data = sheet.getDataRange().getValues();
   
   for (let i = 1; i < data.length; i++) {
-    const masterIdCell = data[i][19]; // Master ID в колонке 20
+    const masterIdCell = data[i][20]; // Master ID в колонке 21
     if (String(masterIdCell) === String(masterId)) {
       return i + 1;
     }
@@ -375,8 +375,8 @@ function setTelegramIdsForOrder(orderId, chatId, messageId) {
   if (!row) return;
   
   const sheet = getSheet();
-  sheet.getRange(row, 19).setValue(chatId);      // Telegram Chat ID
-  sheet.getRange(row, 20).setValue(messageId);   // Telegram Message ID
+  sheet.getRange(row, 19).setValue(chatId);      // Telegram Chat ID (колонка 19)
+  sheet.getRange(row, 20).setValue(messageId);   // Telegram Message ID (колонка 20)
 }
 
 function updateOrderTaken(orderId, masterId, masterName, takenAt) {
@@ -384,10 +384,10 @@ function updateOrderTaken(orderId, masterId, masterName, takenAt) {
   if (!row) return;
   
   const sheet = getSheet();
-  sheet.getRange(row, 18).setValue('Взята');          // Статус = "Взята"
-  sheet.getRange(row, 21).setValue(masterId);         // Master ID
-  sheet.getRange(row, 22).setValue(masterName);       // Master Name
-  sheet.getRange(row, 23).setValue(takenAt);          // Дата принятия
+  sheet.getRange(row, 18).setValue('Взята');          // Статус = "Взята" (колонка 18)
+  sheet.getRange(row, 21).setValue(masterId);         // Master ID (колонка 21)
+  sheet.getRange(row, 22).setValue(masterName);       // Master Name (колонка 22)
+  sheet.getRange(row, 23).setValue(takenAt);          // Дата принятия (колонка 23)
 }
 
 function getOrderByRow(rowNum) {
@@ -442,13 +442,13 @@ function sendReminders() {
   
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    const status = row[17];          // Статус
+    const status = row[17];          // Статус (колонка 17, 0-indexed)
     const orderId = row[0];          // Номер заявки
-    const masterId = row[19];        // Master ID
+    const masterId = row[20];        // Master ID (колонка 21, 0-indexed)
     const dateStr = row[8];          // Дата уборки
     const timeStr = row[9];          // Время уборки
-    const sent24h = row[22];         // Напоминание 24ч
-    const sent2h = row[23];          // Напоминание 2ч
+    const sent24h = row[23];         // Напоминание 24ч (колонка 24, 0-indexed)
+    const sent2h = row[24];         // Напоминание 2ч (колонка 25, 0-indexed)
     
     // Пропускаем если заявка не в статусе "Взята"
     if (String(status).indexOf('Взята') === -1 || !masterId) continue;
@@ -473,7 +473,7 @@ function sendReminders() {
       });
       
       // Отмечаем что напоминание отправлено
-      sheet.getRange(i + 1, 23).setValue('Отправлено ' + new Date().toLocaleString('ru-RU'));
+      sheet.getRange(i + 1, 24).setValue('Отправлено ' + new Date().toLocaleString('ru-RU'));
     }
     
     // Напоминание за 2 часа
@@ -489,7 +489,7 @@ function sendReminders() {
       });
       
       // Отмечаем что напоминание отправлено
-      sheet.getRange(i + 1, 24).setValue('Отправлено ' + new Date().toLocaleString('ru-RU'));
+      sheet.getRange(i + 1, 25).setValue('Отправлено ' + new Date().toLocaleString('ru-RU'));
     }
   }
 }
@@ -671,7 +671,20 @@ function jsonResponse(obj, code) {
 // Простая проверка доступности веб‑приложения
 function doGet(e) {
   try {
-    return jsonResponse({ ok: true, info: 'webapp active' }, 200);
+    const isHealth = e && e.parameter && String(e.parameter.health || '') === '1';
+    if (isHealth) {
+      return jsonResponse({ ok: true, info: 'webapp active' }, 200);
+    }
+
+    const html = HtmlService.createHtmlOutput(
+      '<!doctype html><html><head><meta charset="utf-8"><title>WebApp Active</title></head>' +
+      '<body style="font-family:Arial,sans-serif;padding:24px;">' +
+      '<h2>Web App развернут</h2>' +
+      '<p>Этот URL используется как backend endpoint (webhook/API).</p>' +
+      '<p>Проверка здоровья: добавьте <code>?health=1</code> к URL.</p>' +
+      '</body></html>'
+    );
+    return html.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   } catch (err) {
     return jsonResponse({ ok: false, error: err.message }, 500);
   }
@@ -703,4 +716,53 @@ function __testReminders() {
   Logger.log('Testing reminder system...');
   sendReminders();
   Logger.log('✅ Reminders test completed');
+}
+
+// Установка webhook Telegram на URL веб-приложения
+function __setTelegramWebhook(webAppUrl) {
+  const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
+  if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
+
+  let url = (webAppUrl || '').toString().trim();
+  if (!url) {
+    try {
+      url = ScriptApp.getService().getUrl();
+    } catch (e) {
+      url = '';
+    }
+  }
+  if (!url) throw new Error('Передайте webAppUrl или сначала задеплойте Web App');
+
+  const resp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
+    method: 'post',
+    payload: JSON.stringify({ url: url })
+  });
+
+  Logger.log(JSON.stringify(resp));
+  return resp;
+}
+
+// Проверка текущего webhook Telegram
+function __getTelegramWebhookInfo() {
+  const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
+  if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
+
+  const resp = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, {
+    method: 'get'
+  });
+  Logger.log(JSON.stringify(resp));
+  return resp;
+}
+
+// Удаление webhook Telegram
+function __deleteTelegramWebhook() {
+  const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
+  if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
+
+  const resp = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
+    method: 'post',
+    payload: JSON.stringify({ drop_pending_updates: false })
+  });
+  Logger.log(JSON.stringify(resp));
+  return resp;
 }

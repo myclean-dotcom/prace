@@ -1354,7 +1354,7 @@
                     <button class="action-btn copy" onclick="copyToClipboard()">
                         <i class="far fa-copy"></i> Копировать
                     </button>
-                    <a href="#" class="action-btn telegram" id="telegramLinkBtn" target="_blank">
+                    <a href="https://web.telegram.org/" class="action-btn telegram" id="telegramLinkBtn" target="_blank" rel="noopener noreferrer">
                         <i class="fab fa-telegram"></i> Открыть в Telegram
                     </a>
                     <button class="action-btn new" onclick="newOrder()">
@@ -1722,13 +1722,72 @@
                 // Попробуем распарсить JSON-ответ от сервера
                 try {
                     const json = await resp.json();
-                    return { success: true, response: json };
+                    const success = resp.ok && (!json || json.ok !== false);
+                    return { success, response: json, status: resp.status };
                 } catch (err) {
                     return { success: resp.ok, status: resp.status };
                 }
             } catch (error) {
                 return { success: false, error: error.message };
             }
+        }
+
+        function normalizeTelegramChannel(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+
+            if (raw.startsWith('@')) return raw;
+
+            if (raw.startsWith('https://t.me/') || raw.startsWith('http://t.me/')) {
+                const cleaned = raw.replace(/^https?:\/\/t\.me\//, '').split('/')[0];
+                return cleaned ? `@${cleaned.replace(/^@/, '')}` : '';
+            }
+
+            if (raw.startsWith('t.me/')) {
+                const cleaned = raw.replace(/^t\.me\//, '').split('/')[0];
+                return cleaned ? `@${cleaned.replace(/^@/, '')}` : '';
+            }
+
+            return raw;
+        }
+
+        function buildTelegramMessageLink(chatId, messageId) {
+            const chat = String(chatId || '').trim();
+            const msgId = String(messageId || '').trim();
+
+            if (!chat || !msgId) return null;
+
+            if (chat.startsWith('@')) {
+                return `https://t.me/${chat.slice(1)}/${msgId}`;
+            }
+
+            if (/^-100\d+$/.test(chat)) {
+                return `https://t.me/c/${chat.slice(4)}/${msgId}`;
+            }
+
+            return null;
+        }
+
+        function updateTelegramLinkButton(serverResponse) {
+            const resp = serverResponse || {};
+            const chat = String(resp.chat || normalizeTelegramChannel(telegramChannel.value) || CONFIG.TELEGRAM_CHAT_ID || '').trim();
+            const messageId = resp.messageId || (resp.result && resp.result.message_id) || '';
+            const messageLink = buildTelegramMessageLink(chat, messageId);
+
+            if (messageLink) {
+                telegramLinkBtn.href = messageLink;
+                telegramLinkBtn.title = 'Открыть сообщение в Telegram';
+                return;
+            }
+
+            if (chat.startsWith('@')) {
+                telegramLinkBtn.href = `https://t.me/${chat.slice(1)}`;
+                telegramLinkBtn.title = 'Открыть Telegram-чат';
+                return;
+            }
+
+            telegramLinkBtn.href = 'https://web.telegram.org/';
+            telegramLinkBtn.title = 'Открыть Telegram Web';
         }
 
         function updateDifficultyDisplay() {
@@ -1975,7 +2034,7 @@
                 customerAddress: customerAddress.value,
                 customerFlat: customerFlat.value,
                 customerCity: customerCity.value,
-                telegramChannel: telegramChannel.value,
+                telegramChannel: normalizeTelegramChannel(telegramChannel.value),
                 orderDate: formattedDate,
                 orderTime: orderTime.value,
                 orderTotal: orderTotal.value || '0',
@@ -1996,6 +2055,9 @@
                 // Отправляем заявку на Google Apps Script
                 // Сервер автоматически отправит сообщение в Telegram и сохранит в таблицу
                 const sheetsResult = await saveToGoogleSheets();
+                const serverResponse = sheetsResult.response || {};
+                updateTelegramLinkButton(serverResponse);
+                telegramMessageId = serverResponse.messageId || telegramMessageId;
                 
                 if (sheetsResult.success) {
                     showStatus(`✅ Заявка №${orderId} создана! Отправлена в Telegram и Google Таблицы`, 'success');
