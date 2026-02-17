@@ -4,8 +4,8 @@
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
-const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
-const BUILD_VERSION = '2026-02-17-stable-take-flow-v8';
+const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbxFjX65pjrnrM-nL35eJzJL5YWPzhmkVD-nIkRIJ6I/exec';
+const BUILD_VERSION = '2026-02-17-stable-take-flow-v9';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
@@ -1787,9 +1787,8 @@ function __hardResetBotRouting() {
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан');
 
   const serviceUrl = getCurrentServiceExecUrl();
-  const storedUrl = String(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY) || '').trim();
   const fallbackUrl = normalizeWebhookUrlToExec(DEFAULT_WEBAPP_EXEC_URL);
-  const primaryUrl = serviceUrl || normalizeWebhookUrlToExec(storedUrl) || fallbackUrl;
+  const primaryUrl = serviceUrl || fallbackUrl;
   if (!primaryUrl) throw new Error('Не удалось определить URL Web App');
 
   function applyWebhook(url) {
@@ -1828,11 +1827,9 @@ function __hardResetBotRouting() {
     : '';
   const mismatch = !probeBuild || probeBuild !== BUILD_VERSION;
 
-  if (mismatch && serviceUrl && serviceUrl !== primaryUrl) {
+  if (mismatch && serviceUrl && serviceUrl !== routing.targetUrl) {
     routing = applyWebhook(serviceUrl);
     switchedToServiceUrl = true;
-  } else if (mismatch && storedUrl && normalizeWebhookUrlToExec(storedUrl) !== routing.targetUrl) {
-    routing = applyWebhook(normalizeWebhookUrlToExec(storedUrl));
   } else if (mismatch && fallbackUrl && fallbackUrl !== routing.targetUrl) {
     routing = applyWebhook(fallbackUrl);
   }
@@ -1843,7 +1840,6 @@ function __hardResetBotRouting() {
     buildVersion: BUILD_VERSION,
     primaryUrl: primaryUrl,
     serviceUrl: serviceUrl,
-    storedUrl: normalizeWebhookUrlToExec(storedUrl),
     fallbackUrl: fallbackUrl,
     switchedToServiceUrl: switchedToServiceUrl,
     targetUrl: routing.targetUrl,
