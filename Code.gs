@@ -4,7 +4,7 @@
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
 const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
-const BUILD_VERSION = '2026-02-17-stable-take-flow-v3';
+const BUILD_VERSION = '2026-02-17-stable-take-flow-v4';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
@@ -84,6 +84,7 @@ function doPost(e) {
     return jsonResponse({
       ok: false,
       error: 'unknown action',
+      buildVersion: BUILD_VERSION,
       details: {
         bodyKeys: Object.keys(body || {}),
         rawPresent: !!raw
@@ -91,7 +92,7 @@ function doPost(e) {
     }, 400);
   } catch (err) {
     Logger.log('Error in doPost: ' + err.message);
-    return jsonResponse({ ok: false, error: err.message }, 500);
+    return jsonResponse({ ok: false, error: err.message, buildVersion: BUILD_VERSION }, 500);
   }
 }
 
@@ -189,7 +190,7 @@ function createOrUpdateOrder(payload) {
     const rowNum = findOrderRowById(orderId);
     if (rowNum) {
       updateOrderRow(rowNum, order);
-      return jsonResponse({ ok: true, orderId, updated: true });
+      return jsonResponse({ ok: true, orderId, updated: true, buildVersion: BUILD_VERSION });
     }
   }
 
@@ -202,8 +203,8 @@ function createOrUpdateOrder(payload) {
   const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
   let chat = resolveTelegramChat(order);
   
-  if (!token) return jsonResponse({ ok: true, orderId, note: 'saved, token not set' });
-  if (!chat) return jsonResponse({ ok: true, orderId, note: 'saved, chat id not set' });
+  if (!token) return jsonResponse({ ok: true, orderId, note: 'saved, token not set', buildVersion: BUILD_VERSION });
+  if (!chat) return jsonResponse({ ok: true, orderId, note: 'saved, chat id not set', buildVersion: BUILD_VERSION });
   ensureWebhookPinnedToCurrentDeployment(token);
 
   // Преобразуем форматChat ID если нужно
@@ -235,13 +236,13 @@ function createOrUpdateOrder(payload) {
 
   if (!resp || !resp.ok) {
     Logger.log('Telegram error: ' + JSON.stringify(resp));
-    return jsonResponse({ ok: true, orderId, note: 'saved, telegram error' });
+    return jsonResponse({ ok: true, orderId, note: 'saved, telegram error', buildVersion: BUILD_VERSION });
   }
 
   // Сохраняем Telegram IDs в таблице
   setTelegramIdsForOrder(order.orderId, chat, resp.result.message_id);
   
-  return jsonResponse({ ok: true, orderId, chat, messageId: resp.result.message_id });
+  return jsonResponse({ ok: true, orderId, chat, messageId: resp.result.message_id, buildVersion: BUILD_VERSION });
 }
 
 function formatCreatedAt(date) {
@@ -255,7 +256,7 @@ function formatCreatedAt(date) {
 /* ---------- Обработка обновлений из Telegram ---------- */
 function handleTelegramUpdate(body) {
   const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
-  if (!token) return jsonResponse({ ok: false, error: 'Token not set' }, 500);
+  if (!token) return jsonResponse({ ok: false, error: 'Token not set', buildVersion: BUILD_VERSION }, 500);
 
   // Обработка нажатия кнопки "Выхожу на заявку"
   if (body.callback_query) {
@@ -276,22 +277,20 @@ function handleTelegramUpdate(body) {
     }
     if (duplicateCallback) {
       answerCallback(token, callbackId, 'ℹ️ Нажатие уже обработано.');
-      return jsonResponse({ ok: true, duplicateCallback: true }, 200);
+      return jsonResponse({ ok: true, duplicateCallback: true, buildVersion: BUILD_VERSION }, 200);
     }
     
     if (data.indexOf('take_') === 0) {
       const orderId = String(data).replace(/^take_/, '').trim();
       if (!orderId) {
         answerCallback(token, callbackId, '❌ Некорректный ID заявки.');
-        return jsonResponse({ ok: false, error: 'Invalid order id in callback' }, 200);
+        return jsonResponse({ ok: false, error: 'Invalid order id in callback', buildVersion: BUILD_VERSION }, 200);
       }
 
       const lock = LockService.getScriptLock();
-      try {
-        lock.waitLock(8000);
-      } catch (e) {
+      if (!lock.tryLock(500)) {
         answerCallback(token, callbackId, '⏳ Попробуйте снова через пару секунд.');
-        return jsonResponse({ ok: true, busy: true }, 200);
+        return jsonResponse({ ok: true, busy: true, buildVersion: BUILD_VERSION }, 200);
       }
 
       try {
@@ -302,14 +301,14 @@ function handleTelegramUpdate(body) {
           }
           if (!rowNum) {
             answerCallback(token, callbackId, '❌ Заявка не найдена');
-            return jsonResponse({ ok: false, error: 'Order not found' }, 200);
+            return jsonResponse({ ok: false, error: 'Order not found', buildVersion: BUILD_VERSION }, 200);
           }
 
           const order = getOrderByRow(rowNum);
           const effectiveOrderId = String(order['Номер заявки'] || orderId || '').trim();
           if (!effectiveOrderId) {
             answerCallback(token, callbackId, '❌ Не удалось определить ID заявки.');
-            return jsonResponse({ ok: false, error: 'Effective order id missing' }, 200);
+            return jsonResponse({ ok: false, error: 'Effective order id missing', buildVersion: BUILD_VERSION }, 200);
           }
           const masterId = String(from.id || '').trim();
           let masterName = `${from.first_name || ''} ${from.last_name || ''}`.trim();
@@ -317,7 +316,7 @@ function handleTelegramUpdate(body) {
           if (!masterName) masterName = 'Мастер';
           if (!masterId) {
             answerCallback(token, callbackId, '❌ Не удалось определить ваш Telegram ID.');
-            return jsonResponse({ ok: false, error: 'Master id missing' }, 200);
+            return jsonResponse({ ok: false, error: 'Master id missing', buildVersion: BUILD_VERSION }, 200);
           }
 
           // Блокируем повторное взятие заявки другим мастером.
@@ -328,10 +327,10 @@ function handleTelegramUpdate(body) {
             const takenBy = existingMasterName || (existingMasterId ? ('ID ' + existingMasterId) : 'другим мастером');
             if (existingMasterId && existingMasterId === masterId) {
               answerCallback(token, callbackId, 'ℹ️ Вы уже приняли эту заявку.');
-              return jsonResponse({ ok: true, alreadyTakenBySameMaster: true }, 200);
+              return jsonResponse({ ok: true, alreadyTakenBySameMaster: true, buildVersion: BUILD_VERSION }, 200);
             }
             answerCallback(token, callbackId, `❌ Заявка уже принята: ${takenBy}`);
-            return jsonResponse({ ok: true, alreadyTaken: true }, 200);
+            return jsonResponse({ ok: true, alreadyTaken: true, buildVersion: BUILD_VERSION }, 200);
           }
 
           const takenAt = formatCreatedAt(new Date());
@@ -395,11 +394,11 @@ function handleTelegramUpdate(body) {
             Logger.log('Failed to send DM for order ' + effectiveOrderId + ': ' + JSON.stringify(dmResp));
           }
 
-          return jsonResponse({ ok: true, masterAccepted: true }, 200);
+          return jsonResponse({ ok: true, masterAccepted: true, buildVersion: BUILD_VERSION }, 200);
         } catch (err) {
           Logger.log('Error while processing callback take_: ' + err.message + '\n' + (err.stack || ''));
           answerCallback(token, callbackId, '❌ Ошибка обработки кнопки. Нажмите еще раз через 2-3 секунды.');
-          return jsonResponse({ ok: false, error: 'callback processing failed', details: err.message }, 200);
+          return jsonResponse({ ok: false, error: 'callback processing failed', details: err.message, buildVersion: BUILD_VERSION }, 200);
         }
       } finally {
         try { lock.releaseLock(); } catch (e) {}
@@ -408,11 +407,11 @@ function handleTelegramUpdate(body) {
 
     if (data.indexOf('reject_') === 0) {
       answerCallback(token, callbackId, '❌ Вы отказались от заявки.');
-      return jsonResponse({ ok: true }, 200);
+      return jsonResponse({ ok: true, buildVersion: BUILD_VERSION }, 200);
     }
 
     answerCallback(token, callbackId, 'Неизвестное действие.');
-    return jsonResponse({ ok: true }, 200);
+    return jsonResponse({ ok: true, buildVersion: BUILD_VERSION }, 200);
   }
 
   // Обработка фотографий от мастера
@@ -435,7 +434,7 @@ function handleTelegramUpdate(body) {
       }) 
     });
     
-    return jsonResponse({ ok: true }, 200);
+    return jsonResponse({ ok: true, buildVersion: BUILD_VERSION }, 200);
   }
 
   // Сохранение chat_id автоматически
@@ -445,7 +444,7 @@ function handleTelegramUpdate(body) {
     if (!saved) PROP.setProperty('TELEGRAM_CHAT_ID', String(chatId));
   }
 
-  return jsonResponse({ ok: true }, 200);
+  return jsonResponse({ ok: true, buildVersion: BUILD_VERSION }, 200);
 }
 
 /* ---------- Функции для работы с таблицей (русские заголовки) ---------- */
@@ -540,9 +539,10 @@ function getCellByHeader(rowValues, headerMap, headerName) {
 }
 
 function buildOrderRowData(order, status) {
+  const createdAt = normalizeCreatedAtValue(order._ts);
   return {
     'Номер заявки': order.orderId || '',
-    'Дата создания': order._ts || '',
+    'Дата создания': createdAt,
     'Менеджер': order.manager || '',
     'Имя клиента': order.customerName || '',
     'Телефон клиента': order.customerPhone || '',
@@ -568,6 +568,26 @@ function buildOrderRowData(order, status) {
     'Напоминание 2ч': '',
     'Статус выполнения': ''
   };
+}
+
+function normalizeCreatedAtValue(value) {
+  if (value === null || value === undefined || value === '') {
+    return formatCreatedAt(new Date());
+  }
+
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return formatCreatedAt(value);
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return formatCreatedAt(new Date());
+
+  const parsed = new Date(raw);
+  if (!isNaN(parsed.getTime())) {
+    return formatCreatedAt(parsed);
+  }
+
+  return raw;
 }
 
 function appendOrderRow(sheet, rowData) {
@@ -655,10 +675,11 @@ function updateOrderRow(rowNum, order) {
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h || '').trim());
   const currentRow = sheet.getRange(rowNum, 1, 1, headers.length).getValues()[0];
   const statusCol = headers.indexOf('Статус');
+  const createdAt = normalizeCreatedAtValue(order._ts);
 
   const map = {
     'Номер заявки': order.orderId || '',
-    'Дата создания': order._ts || '',
+    'Дата создания': createdAt,
     'Менеджер': order.manager || '',
     'Имя клиента': order.customerName || '',
     'Телефон клиента': order.customerPhone || '',
@@ -1220,12 +1241,20 @@ function isDuplicateCallback(callbackId) {
   const id = String(callbackId || '').trim();
   if (!id) return false;
 
+  const propKey = 'CBQ_HANDLED_' + id;
+  const alreadyHandled = String(PROP.getProperty(propKey) || '').trim();
+  if (alreadyHandled) return true;
+
   const cache = CacheService.getScriptCache();
   const key = 'cbq_' + id;
   const exists = cache.get(key);
-  if (exists) return true;
+  if (exists) {
+    try { PROP.setProperty(propKey, String(Date.now())); } catch (e) {}
+    return true;
+  }
 
-  cache.put(key, '1', 120);
+  cache.put(key, '1', 600);
+  try { PROP.setProperty(propKey, String(Date.now())); } catch (e) {}
   return false;
 }
 
@@ -1254,7 +1283,7 @@ function doGet(e) {
   try {
     const isHealth = e && e.parameter && String(e.parameter.health || '') === '1';
     if (isHealth) {
-      return jsonResponse({ ok: true, info: 'webapp active' }, 200);
+      return jsonResponse({ ok: true, info: 'webapp active', buildVersion: BUILD_VERSION }, 200);
     }
 
     const html = HtmlService.createHtmlOutput(
@@ -1629,4 +1658,14 @@ function __checkWebhookPublicAccess() {
   } catch (e) {
     return { ok: false, url: url, error: e.message };
   }
+}
+
+function __getBuildInfo() {
+  const info = {
+    buildVersion: BUILD_VERSION,
+    defaultWebAppExecUrl: DEFAULT_WEBAPP_EXEC_URL,
+    resolvedWebhookExecUrl: resolveWebhookExecUrl('')
+  };
+  Logger.log(JSON.stringify(info));
+  return info;
 }

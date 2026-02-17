@@ -2020,14 +2020,18 @@
                     const backendError = (sheetsResult.response && (sheetsResult.response.error || sheetsResult.response.note))
                         || sheetsResult.error
                         || 'Неизвестная ошибка бэкенда';
-                    showStatus(`❌ Заявка №${orderId} НЕ сохранена: ${backendError}`, 'error');
+                    const backendVersion = (sheetsResult.response && sheetsResult.response.buildVersion)
+                        ? ` (backend: ${sheetsResult.response.buildVersion})`
+                        : '';
+                    showStatus(`❌ Заявка №${orderId} НЕ сохранена: ${backendError}${backendVersion}`, 'error');
                     return;
                 }
 
                 const serverResponse = sheetsResult.response || {};
                 updateTelegramLinkButton(serverResponse);
                 telegramMessageId = serverResponse.messageId || telegramMessageId;
-                showStatus(`✅ Заявка №${orderId} создана! Отправлена в Telegram и Google Таблицы`, 'success');
+                const backendVersion = serverResponse.buildVersion ? ` (backend: ${serverResponse.buildVersion})` : '';
+                showStatus(`✅ Заявка №${orderId} создана! Отправлена в Telegram и Google Таблицы${backendVersion}`, 'success');
                 
                 step3.classList.add('active');
                 step2.classList.remove('active');
