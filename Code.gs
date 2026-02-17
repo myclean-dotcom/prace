@@ -3,6 +3,38 @@
 
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
+const REQUIRED_HEADERS = [
+  'Номер заявки',
+  'Дата создания',
+  'Менеджер',
+  'Имя клиента',
+  'Телефон клиента',
+  'Город',
+  'Улица и дом',
+  'Квартира/офис',
+  'Дата уборки',
+  'Время уборки',
+  'Сумма заказа',
+  'Зарплата мастерам',
+  'Тип уборки',
+  'Площадь (м²)',
+  'Химия',
+  'Оборудование',
+  'Описание работ',
+  'Статус',
+  'Telegram Chat ID',
+  'Telegram Message ID',
+  'Master ID',
+  'Master Name',
+  'Дата принятия',
+  'Напоминание 24ч',
+  'Напоминание 2ч',
+  'Статус выполнения'
+];
+
+const CITY_TELEGRAM_CHAT_MAP = {
+  'новосибирск': PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '-1003875039787'
+};
 
 // Главная функция для обработки POST запросов
 function doPost(e) {
@@ -68,40 +100,12 @@ function createOrUpdateOrder(payload) {
 
   // Добавление новой строки в таблицу
   const status = payload.action === 'update' ? 'Черновик' : 'Опубликована';
-  const row = [
-    order.orderId,
-    order._ts,
-    order.manager || '',
-    order.customerName || '',
-    order.customerPhone || '',
-    order.customerCity || '',
-    order.customerAddress || '',
-    order.customerFlat || '',
-    order.orderDate || '',
-    order.orderTime || '',
-    order.orderTotal || '',
-    order.masterPay || '',
-    order.cleaningType || '',
-    order.area || '',
-    order.chemistry || '',
-    order.equipment || '',
-    order.worksDescription || '',
-    status,
-    '', // Telegram Chat ID
-    '', // Telegram Message ID
-    '', // Master ID (заполняется когда мастер берёт заявку)
-    '', // Master Name (заполняется когда мастер берёт заявку)
-    '', // Дата/время принятия мастером
-    '', // Напоминание за 24ч (отправлено)
-    '', // Напоминание за 2ч (отправлено)
-    ''  // Фотографии/статус выполнения
-  ];
-  
-  sheet.appendRow(row);
+  const rowData = buildOrderRowData(order, status);
+  appendOrderRow(sheet, rowData);
 
   // Отправка сообщения в Telegram
   const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
-  let chat = (order.telegramChannel || PROP.getProperty('TELEGRAM_CHAT_ID') || '').toString().trim();
+  let chat = resolveTelegramChat(order);
   
   if (!token) return jsonResponse({ ok: true, orderId, note: 'saved, token not set' });
   if (!chat) return jsonResponse({ ok: true, orderId, note: 'saved, chat id not set' });
@@ -138,8 +142,7 @@ function createOrUpdateOrder(payload) {
     return jsonResponse({ ok: true, orderId, note: 'saved, telegram error' });
   }
 
-  // Сохраняем Telegram IDs в таблице - ВАЖНО: нужно получить номер строки, которую только что добавили
-  const newRowNum = sheet.getLastRow();
+  // Сохраняем Telegram IDs в таблице
   setTelegramIdsForOrder(order.orderId, chat, resp.result.message_id);
   
   return jsonResponse({ ok: true, orderId, chat, messageId: resp.result.message_id });
@@ -281,46 +284,127 @@ function getSheet() {
   
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_NAME);
-    sheet.appendRow([
-      'Номер заявки',
-      'Дата создания',
-      'Менеджер',
-      'Имя клиента',
-      'Телефон клиента',
-      'Город',
-      'Улица и дом',
-      'Квартира/офис',
-      'Дата уборки',
-      'Время уборки',
-      'Сумма заказа',
-      'Зарплата мастерам',
-      'Тип уборки',
-      'Площадь (м²)',
-      'Химия',
-      'Оборудование',
-      'Описание работ',
-      'Статус',
-      'Telegram Chat ID',
-      'Telegram Message ID',
-      'Master ID',
-      'Master Name',
-      'Дата принятия',
-      'Напоминание 24ч',
-      'Напоминание 2ч',
-      'Статус выполнения'
-    ]);
   }
+
+  ensureSheetHeaders(sheet);
   
   return sheet;
 }
 
+function ensureSheetHeaders(sheet) {
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, REQUIRED_HEADERS.length).setValues([REQUIRED_HEADERS]);
+    return;
+  }
+
+  const width = Math.max(sheet.getLastColumn(), REQUIRED_HEADERS.length);
+  if (sheet.getMaxColumns() < width) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), width - sheet.getMaxColumns());
+  }
+
+  const headers = sheet.getRange(1, 1, 1, width).getValues()[0].map(h => String(h || '').trim());
+  const missing = REQUIRED_HEADERS.filter(h => headers.indexOf(h) === -1);
+  if (!missing.length) return;
+
+  let lastFilledHeaderCol = 0;
+  for (let i = 0; i < headers.length; i++) {
+    if (headers[i]) lastFilledHeaderCol = i + 1;
+  }
+
+  const startCol = Math.max(lastFilledHeaderCol + 1, 1);
+  const endCol = startCol + missing.length - 1;
+  if (sheet.getMaxColumns() < endCol) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), endCol - sheet.getMaxColumns());
+  }
+  sheet.getRange(1, startCol, 1, missing.length).setValues([missing]);
+}
+
+function getHeaderMap(sheet) {
+  ensureSheetHeaders(sheet);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const map = {};
+
+  for (let i = 0; i < headers.length; i++) {
+    const header = String(headers[i] || '').trim();
+    if (header) map[header] = i + 1;
+  }
+
+  return map;
+}
+
+function setCellByHeader(sheet, row, headerMap, headerName, value) {
+  const col = headerMap[headerName];
+  if (!col) return;
+  sheet.getRange(row, col).setValue(value);
+}
+
+function getCellByHeader(rowValues, headerMap, headerName) {
+  const col = headerMap[headerName];
+  if (!col) return '';
+  return rowValues[col - 1];
+}
+
+function buildOrderRowData(order, status) {
+  return {
+    'Номер заявки': order.orderId || '',
+    'Дата создания': order._ts || '',
+    'Менеджер': order.manager || '',
+    'Имя клиента': order.customerName || '',
+    'Телефон клиента': order.customerPhone || '',
+    'Город': order.customerCity || '',
+    'Улица и дом': order.customerAddress || '',
+    'Квартира/офис': order.customerFlat || '',
+    'Дата уборки': order.orderDate || '',
+    'Время уборки': order.orderTime || '',
+    'Сумма заказа': order.orderTotal || '',
+    'Зарплата мастерам': order.masterPay || '',
+    'Тип уборки': order.cleaningType || '',
+    'Площадь (м²)': order.area || '',
+    'Химия': order.chemistry || '',
+    'Оборудование': order.equipment || '',
+    'Описание работ': order.worksDescription || '',
+    'Статус': status || '',
+    'Telegram Chat ID': '',
+    'Telegram Message ID': '',
+    'Master ID': '',
+    'Master Name': '',
+    'Дата принятия': '',
+    'Напоминание 24ч': '',
+    'Напоминание 2ч': '',
+    'Статус выполнения': ''
+  };
+}
+
+function appendOrderRow(sheet, rowData) {
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h || '').trim());
+  const row = headers.map(h => Object.prototype.hasOwnProperty.call(rowData, h) ? rowData[h] : '');
+  sheet.appendRow(row);
+}
+
+function normalizeCityKey(city) {
+  return String(city || '').trim().toLowerCase();
+}
+
+function resolveTelegramChat(order) {
+  const cityKey = normalizeCityKey(order.customerCity);
+  const cityChat = CITY_TELEGRAM_CHAT_MAP[cityKey];
+  const fallback = order.telegramChannel || PROP.getProperty('TELEGRAM_CHAT_ID') || '';
+  return String(cityChat || fallback).trim();
+}
+
 function findOrderRowById(orderId) {
   const sheet = getSheet();
-  const data = sheet.getDataRange().getValues();
-  
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]).trim() === String(orderId).trim()) {
-      return i + 1;
+  const headerMap = getHeaderMap(sheet);
+  const orderIdCol = headerMap['Номер заявки'];
+  const lastRow = sheet.getLastRow();
+  if (!orderIdCol || lastRow < 2) return null;
+
+  const values = sheet.getRange(2, orderIdCol, lastRow - 1, 1).getValues();
+  const target = String(orderId || '').trim();
+
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][0]).trim() === target) {
+      return i + 2;
     }
   }
   
@@ -329,12 +413,17 @@ function findOrderRowById(orderId) {
 
 function findOrderRowByMasterId(masterId) {
   const sheet = getSheet();
-  const data = sheet.getDataRange().getValues();
-  
-  for (let i = 1; i < data.length; i++) {
-    const masterIdCell = data[i][20]; // Master ID в колонке 21
-    if (String(masterIdCell) === String(masterId)) {
-      return i + 1;
+  const headerMap = getHeaderMap(sheet);
+  const masterIdCol = headerMap['Master ID'];
+  const lastRow = sheet.getLastRow();
+  if (!masterIdCol || lastRow < 2) return null;
+
+  const values = sheet.getRange(2, masterIdCol, lastRow - 1, 1).getValues();
+  const target = String(masterId || '');
+
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][0]) === target) {
+      return i + 2;
     }
   }
   
@@ -343,8 +432,10 @@ function findOrderRowByMasterId(masterId) {
 
 function updateOrderRow(rowNum, order) {
   const sheet = getSheet();
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h || '').trim());
+  const currentRow = sheet.getRange(rowNum, 1, 1, headers.length).getValues()[0];
+  const statusCol = headers.indexOf('Статус');
+
   const map = {
     'Номер заявки': order.orderId || '',
     'Дата создания': order._ts || '',
@@ -363,11 +454,17 @@ function updateOrderRow(rowNum, order) {
     'Химия': order.chemistry || '',
     'Оборудование': order.equipment || '',
     'Описание работ': order.worksDescription || '',
-    'Статус': order.status || ''
+    'Статус': order.status || (statusCol >= 0 ? currentRow[statusCol] : '')
   };
-  
-  const row = headers.map(h => map[h] || '');
-  sheet.getRange(rowNum, 1, 1, row.length).setValues([row]);
+
+  for (let i = 0; i < headers.length; i++) {
+    const header = headers[i];
+    if (Object.prototype.hasOwnProperty.call(map, header)) {
+      currentRow[i] = map[header];
+    }
+  }
+
+  sheet.getRange(rowNum, 1, 1, currentRow.length).setValues([currentRow]);
 }
 
 function setTelegramIdsForOrder(orderId, chatId, messageId) {
@@ -375,8 +472,9 @@ function setTelegramIdsForOrder(orderId, chatId, messageId) {
   if (!row) return;
   
   const sheet = getSheet();
-  sheet.getRange(row, 19).setValue(chatId);      // Telegram Chat ID (колонка 19)
-  sheet.getRange(row, 20).setValue(messageId);   // Telegram Message ID (колонка 20)
+  const headerMap = getHeaderMap(sheet);
+  setCellByHeader(sheet, row, headerMap, 'Telegram Chat ID', chatId);
+  setCellByHeader(sheet, row, headerMap, 'Telegram Message ID', messageId);
 }
 
 function updateOrderTaken(orderId, masterId, masterName, takenAt) {
@@ -384,20 +482,21 @@ function updateOrderTaken(orderId, masterId, masterName, takenAt) {
   if (!row) return;
   
   const sheet = getSheet();
-  sheet.getRange(row, 18).setValue('Взята');          // Статус = "Взята" (колонка 18)
-  sheet.getRange(row, 21).setValue(masterId);         // Master ID (колонка 21)
-  sheet.getRange(row, 22).setValue(masterName);       // Master Name (колонка 22)
-  sheet.getRange(row, 23).setValue(takenAt);          // Дата принятия (колонка 23)
+  const headerMap = getHeaderMap(sheet);
+  setCellByHeader(sheet, row, headerMap, 'Статус', 'Взята');
+  setCellByHeader(sheet, row, headerMap, 'Master ID', masterId);
+  setCellByHeader(sheet, row, headerMap, 'Master Name', masterName);
+  setCellByHeader(sheet, row, headerMap, 'Дата принятия', takenAt);
 }
 
 function getOrderByRow(rowNum) {
   const sheet = getSheet();
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  const values = sheet.getRange(rowNum, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h || '').trim());
+  const values = sheet.getRange(rowNum, 1, 1, headers.length).getValues()[0];
   
   const obj = {};
   for (let i = 0; i < headers.length; i++) {
-    obj[headers[i]] = values[i];
+    if (headers[i]) obj[headers[i]] = values[i];
   }
   
   return obj;
@@ -405,13 +504,16 @@ function getOrderByRow(rowNum) {
 
 function appendPhotoToOrder(rowNum, fileId, caption) {
   const sheet = getSheet();
+  const headerMap = getHeaderMap(sheet);
+  const statusDoneCol = headerMap['Статус выполнения'] || REQUIRED_HEADERS.length;
+  const firstPhotoCol = statusDoneCol + 1;
   
   // Найдём последнюю заполненную колонку
   const lastCol = sheet.getLastColumn();
   
   // Проверим, есть ли уже колонка для фото
   let photoCol = null;
-  for (let col = 27; col <= lastCol; col++) {
+  for (let col = firstPhotoCol; col <= lastCol; col++) {
     const cellValue = sheet.getRange(rowNum, col).getValue();
     if (!cellValue) {
       photoCol = col;
@@ -421,8 +523,8 @@ function appendPhotoToOrder(rowNum, fileId, caption) {
   
   // Если нет пустой колонки, добавим новую
   if (!photoCol) {
-    photoCol = lastCol + 1;
-    sheet.getRange(1, photoCol).setValue('Фото ' + (photoCol - 26));
+    photoCol = Math.max(lastCol + 1, firstPhotoCol);
+    sheet.getRange(1, photoCol).setValue('Фото ' + (photoCol - firstPhotoCol + 1));
   }
   
   // Сохраняем информацию о фото
@@ -433,22 +535,26 @@ function appendPhotoToOrder(rowNum, fileId, caption) {
 /* ---------- Функции отправки напоминаний ---------- */
 function sendReminders() {
   const sheet = getSheet();
-  const data = sheet.getDataRange().getValues();
   const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
   
   if (!token) return;
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  const headerMap = getHeaderMap(sheet);
+  const data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
   
   const now = new Date();
   
-  for (let i = 1; i < data.length; i++) {
+  for (let i = 0; i < data.length; i++) {
     const row = data[i];
-    const status = row[17];          // Статус (колонка 17, 0-indexed)
-    const orderId = row[0];          // Номер заявки
-    const masterId = row[20];        // Master ID (колонка 21, 0-indexed)
-    const dateStr = row[8];          // Дата уборки
-    const timeStr = row[9];          // Время уборки
-    const sent24h = row[23];         // Напоминание 24ч (колонка 24, 0-indexed)
-    const sent2h = row[24];         // Напоминание 2ч (колонка 25, 0-indexed)
+    const status = getCellByHeader(row, headerMap, 'Статус');
+    const orderId = getCellByHeader(row, headerMap, 'Номер заявки');
+    const masterId = getCellByHeader(row, headerMap, 'Master ID');
+    const dateStr = getCellByHeader(row, headerMap, 'Дата уборки');
+    const timeStr = getCellByHeader(row, headerMap, 'Время уборки');
+    const sent24h = getCellByHeader(row, headerMap, 'Напоминание 24ч');
+    const sent2h = getCellByHeader(row, headerMap, 'Напоминание 2ч');
     
     // Пропускаем если заявка не в статусе "Взята"
     if (String(status).indexOf('Взята') === -1 || !masterId) continue;
@@ -473,7 +579,7 @@ function sendReminders() {
       });
       
       // Отмечаем что напоминание отправлено
-      sheet.getRange(i + 1, 24).setValue('Отправлено ' + new Date().toLocaleString('ru-RU'));
+      setCellByHeader(sheet, i + 2, headerMap, 'Напоминание 24ч', 'Отправлено ' + new Date().toLocaleString('ru-RU'));
     }
     
     // Напоминание за 2 часа
@@ -489,7 +595,7 @@ function sendReminders() {
       });
       
       // Отмечаем что напоминание отправлено
-      sheet.getRange(i + 1, 25).setValue('Отправлено ' + new Date().toLocaleString('ru-RU'));
+      setCellByHeader(sheet, i + 2, headerMap, 'Напоминание 2ч', 'Отправлено ' + new Date().toLocaleString('ru-RU'));
     }
   }
 }
@@ -695,6 +801,7 @@ function __setScriptPropertiesForToken() {
   const props = PropertiesService.getScriptProperties();
   props.setProperty('TELEGRAM_BOT_TOKEN', '8471091759:AAGiszC401WRMWcTXXPi9PizsqxX-oAUurI');
   props.setProperty('TELEGRAM_CHAT_ID', '-1003875039787'); // Замените на ваш ID группы
+  props.setProperty('TELEGRAM_CHAT_NOVOSIBIRSK', '-1003875039787');
   Logger.log('✅ Properties set successfully');
 }
 
@@ -703,12 +810,29 @@ function __checkConfiguration() {
   const props = PropertiesService.getScriptProperties();
   const token = props.getProperty('TELEGRAM_BOT_TOKEN');
   const chatId = props.getProperty('TELEGRAM_CHAT_ID');
+  const nskChat = props.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK');
   
   Logger.log('=== CONFIGURATION CHECK ===');
   Logger.log('Bot Token: ' + (token ? '✅ Set' : '❌ Not set'));
   Logger.log('Chat ID: ' + (chatId ? '✅ Set (' + chatId + ')' : '❌ Not set'));
+  Logger.log('Novosibirsk Chat: ' + (nskChat ? '✅ Set (' + nskChat + ')' : '⚠️ Not set (used default in code)'));
   Logger.log('Sheet Name: ' + SHEET_NAME);
   Logger.log('========================');
+}
+
+// Проверка наличия обязательных заголовков в Google Таблице
+function __checkSheetHeaders() {
+  const sheet = getSheet();
+  const headerMap = getHeaderMap(sheet);
+  const missing = REQUIRED_HEADERS.filter(h => !headerMap[h]);
+
+  if (missing.length) {
+    Logger.log('❌ Отсутствуют заголовки: ' + missing.join(', '));
+    return { ok: false, missing: missing };
+  }
+
+  Logger.log('✅ Все обязательные заголовки на месте');
+  return { ok: true, headers: REQUIRED_HEADERS };
 }
 
 // Функция для тестирования напоминаний (запустить один раз)

@@ -1155,7 +1155,7 @@
                     <div class="inline-fields">
                         <div class="inline-field">
                             <label>Имя клиента</label>
-                            <input type="text" id="customerName" placeholder="Фамилия Имя">
+                            <input type="text" id="customerName" placeholder="Только имя">
                         </div>
                         <div class="inline-field">
                             <label>Телефон</label>
@@ -1179,18 +1179,17 @@
                 </div>
 
                 <div class="form-group">
-                    <label class="required">Город и канал</label>
+                    <label class="required">Город</label>
                     <div class="inline-fields">
                         <div class="inline-field">
                             <label>Город</label>
-                            <input type="text" id="customerCity" placeholder="Например: Новосибирск">
-                        </div>
-                        <div class="inline-field">
-                            <label>Telegram-канал/группа</label>
-                            <input type="text" id="telegramChannel" placeholder="@cleaning_nsk или -1001234567890">
+                            <select id="customerCity">
+                                <option value="">Выберите город</option>
+                                <option value="Новосибирск">Новосибирск</option>
+                            </select>
                         </div>
                     </div>
-                    <div class="field-note">Используйте канал города для рассылки заявки мастерам.</div>
+                    <div class="field-note">Telegram-чат выбирается автоматически по городу.</div>
                 </div>
 
                 <div class="form-group">
@@ -1299,48 +1298,6 @@
                     <textarea id="worksDescription" placeholder="Дополнительные пожелания, особенности помещения..."></textarea>
                 </div>
 
-                <div class="form-group">
-                    <label>Этапы выполнения</label>
-                    <div class="checkbox-group" id="workflowGroup">
-                        <div class="checkbox-option" data-value="Мастер взял заявку">
-                            <div class="custom-checkbox"></div>
-                            <span class="checkbox-label">Мастер взял заявку</span>
-                        </div>
-                        <div class="checkbox-option" data-value="Напоминание за 24 часа">
-                            <div class="custom-checkbox"></div>
-                            <span class="checkbox-label">Напоминание за 24 часа</span>
-                        </div>
-                        <div class="checkbox-option" data-value="Напоминание за 2 часа">
-                            <div class="custom-checkbox"></div>
-                            <span class="checkbox-label">Напоминание за 2 часа</span>
-                        </div>
-                        <div class="checkbox-option" data-value="Фото прибытия">
-                            <div class="custom-checkbox"></div>
-                            <span class="checkbox-label">Фото прибытия</span>
-                        </div>
-                        <div class="checkbox-option" data-value="Фото химии">
-                            <div class="custom-checkbox"></div>
-                            <span class="checkbox-label">Фото химии</span>
-                        </div>
-                        <div class="checkbox-option" data-value="Фото до работ">
-                            <div class="custom-checkbox"></div>
-                            <span class="checkbox-label">Фото до работ</span>
-                        </div>
-                        <div class="checkbox-option" data-value="Фото после работ">
-                            <div class="custom-checkbox"></div>
-                            <span class="checkbox-label">Фото после работ</span>
-                        </div>
-                        <div class="checkbox-option" data-value="Акт и договор подписаны">
-                            <div class="custom-checkbox"></div>
-                            <span class="checkbox-label">Акт и договор подписаны</span>
-                        </div>
-                        <div class="checkbox-option" data-value="Оплата проведена">
-                            <div class="custom-checkbox"></div>
-                            <span class="checkbox-label">Оплата проведена</span>
-                        </div>
-                    </div>
-                </div>
-
                 <button class="btn-create-order" id="createOrderBtn">
                     <i class="fas fa-file-invoice-dollar"></i> Создать заявку
                 </button>
@@ -1374,7 +1331,10 @@
         const CONFIG = {
             TELEGRAM_BOT_TOKEN: '8471091759:AAGiszC401WRMWcTXXPi9PizsqxX-oAUurI',
             TELEGRAM_CHAT_ID: '',
-            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbzMILhmf6SUIk-DIk2ryuD5YHxlyhWO641PqUvzoBSr_UwnIR_XLXYch0QmFoT_nYzj/exec',
+            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxvdm8V7iY3PS2AoyIm4GTW7ncvhujJMIEOFeCi37R5G8BPcOudcWt7nQg2j04XU0_T/exec',
+            CITY_TELEGRAM_CHATS: {
+                'Новосибирск': '-1003875039787'
+            },
             PRICES: {
                 cleaningTypes: {
                     'maintenance': 80,
@@ -1426,7 +1386,6 @@
         const customerAddress = document.getElementById('customerAddress');
         const customerFlat = document.getElementById('customerFlat');
         const customerCity = document.getElementById('customerCity');
-        const telegramChannel = document.getElementById('telegramChannel');
         const orderDate = document.getElementById('orderDate');
         const orderTime = document.getElementById('orderTime');
         const orderTotal = document.getElementById('orderTotal');
@@ -1436,7 +1395,6 @@
         
         const equipmentOptions = document.querySelectorAll('#equipmentGroup .checkbox-option');
         const chemistryOptions = document.querySelectorAll('#chemistryGroup .checkbox-option');
-        const workflowOptions = document.querySelectorAll('#workflowGroup .checkbox-option');
         
         const calculateBtn = document.getElementById('calculateBtn');
         const resetBtn = document.getElementById('resetBtn');
@@ -1529,12 +1487,6 @@
                     this.classList.toggle('selected');
                 });
             });
-
-            workflowOptions.forEach(option => {
-                option.addEventListener('click', function() {
-                    this.classList.toggle('selected');
-                });
-            });
             
             calculateBtn.addEventListener('click', function() {
                 calculatePrice();
@@ -1555,36 +1507,12 @@
                 const data = await response.json();
                 
                 if (data.ok) {
-                    await findTelegramChatId();
+                    showStatus('✅ Telegram бот подключен. Чат выбирается автоматически по городу.', 'success');
                 } else {
                     showStatus('❌ Ошибка Telegram бота. Проверьте токен.', 'error');
                 }
             } catch (error) {
                 showStatus('⚠️ Не удалось проверить Telegram бота. Проверьте интернет.', 'info');
-            }
-        }
-
-        async function findTelegramChatId() {
-            try {
-                const response = await fetch(`${TELEGRAM_API_URL}/getUpdates`);
-                const data = await response.json();
-                
-                if (data.ok && data.result.length > 0) {
-                    for (const update of data.result) {
-                        if (update.message && update.message.chat) {
-                            const chat = update.message.chat;
-                            if (chat.type === 'group' || chat.type === 'supergroup') {
-                                CONFIG.TELEGRAM_CHAT_ID = chat.id;
-                                showStatus('✅ Telegram настроен. Бот готов к отправке заявок.', 'success');
-                                return;
-                            }
-                        }
-                    }
-                }
-                
-                showStatus('⚠️ Добавьте бота в группу и отправьте сообщение', 'info');
-            } catch (error) {
-                console.error('Ошибка поиска Chat ID:', error);
             }
         }
 
@@ -1733,22 +1661,22 @@
         }
 
         function normalizeTelegramChannel(value) {
-            const raw = String(value || '').trim();
-            if (!raw) return '';
+            return String(value || '').trim();
+        }
 
-            if (raw.startsWith('@')) return raw;
+        function getTelegramChatForCity(city) {
+            const cityName = String(city || '').trim();
+            return normalizeTelegramChannel(CONFIG.CITY_TELEGRAM_CHATS[cityName] || '');
+        }
 
-            if (raw.startsWith('https://t.me/') || raw.startsWith('http://t.me/')) {
-                const cleaned = raw.replace(/^https?:\/\/t\.me\//, '').split('/')[0];
-                return cleaned ? `@${cleaned.replace(/^@/, '')}` : '';
-            }
+        function normalizeCustomerName(value) {
+            const cleaned = String(value || '')
+                .replace(/[^A-Za-zА-Яа-яЁё\s-]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
 
-            if (raw.startsWith('t.me/')) {
-                const cleaned = raw.replace(/^t\.me\//, '').split('/')[0];
-                return cleaned ? `@${cleaned.replace(/^@/, '')}` : '';
-            }
-
-            return raw;
+            if (!cleaned) return '';
+            return cleaned.split(' ')[0];
         }
 
         function buildTelegramMessageLink(chatId, messageId) {
@@ -1770,7 +1698,8 @@
 
         function updateTelegramLinkButton(serverResponse) {
             const resp = serverResponse || {};
-            const chat = String(resp.chat || normalizeTelegramChannel(telegramChannel.value) || CONFIG.TELEGRAM_CHAT_ID || '').trim();
+            const cityChat = currentOrderData ? currentOrderData.telegramChannel : getTelegramChatForCity(customerCity.value);
+            const chat = String(resp.chat || cityChat || CONFIG.TELEGRAM_CHAT_ID || '').trim();
             const messageId = resp.messageId || (resp.result && resp.result.message_id) || '';
             const messageLink = buildTelegramMessageLink(chat, messageId);
 
@@ -1920,7 +1849,6 @@
             
             equipmentOptions.forEach(opt => opt.classList.remove('selected'));
             chemistryOptions.forEach(opt => opt.classList.remove('selected'));
-            workflowOptions.forEach(opt => opt.classList.remove('selected'));
             
             calculatePrice();
             
@@ -1939,14 +1867,18 @@
 
         async function createOrder() {
             const manager = managerNameInput.value.trim();
+            const city = customerCity.value.trim();
+            const clientFirstName = normalizeCustomerName(customerName.value);
+            const cityTelegramChat = getTelegramChatForCity(city);
+
             if (!manager) {
                 showStatus('❌ Укажите имя менеджера!', 'error');
                 managerNameInput.focus();
                 return;
             }
             
-            if (!customerName.value.trim()) {
-                showStatus('❌ Укажите имя клиента!', 'error');
+            if (!clientFirstName) {
+                showStatus('❌ Укажите имя клиента (только имя)!', 'error');
                 customerName.focus();
                 return;
             }
@@ -1963,11 +1895,19 @@
                 return;
             }
 
-            if (!customerCity.value.trim()) {
-                showStatus('❌ Укажите город!', 'error');
+            if (!city) {
+                showStatus('❌ Выберите город!', 'error');
                 customerCity.focus();
                 return;
             }
+
+            if (!cityTelegramChat) {
+                showStatus(`❌ Для города "${city}" не настроен Telegram-чат`, 'error');
+                customerCity.focus();
+                return;
+            }
+
+            customerName.value = clientFirstName;
             
             const orderId = 'CLN-' + Date.now().toString().slice(-8);
             
@@ -1985,13 +1925,6 @@
                 }
             });
 
-            const workflow = [];
-            workflowOptions.forEach(option => {
-                if (option.classList.contains('selected')) {
-                    workflow.push(option.getAttribute('data-value'));
-                }
-            });
-            
             let cleaningTypeText = '';
             switch(document.querySelector('#cleaningType .radio-option.selected').getAttribute('data-value')) {
                 case 'maintenance': cleaningTypeText = 'Поддерживающая'; break;
@@ -2029,12 +1962,12 @@
                 farTrip: farTrip.value === '1000' ? 'Да' : 'Нет',
                 pets: pets,
                 
-                customerName: customerName.value,
+                customerName: clientFirstName,
                 customerPhone: customerPhone.value,
                 customerAddress: customerAddress.value,
                 customerFlat: customerFlat.value,
-                customerCity: customerCity.value,
-                telegramChannel: normalizeTelegramChannel(telegramChannel.value),
+                customerCity: city,
+                telegramChannel: cityTelegramChat,
                 orderDate: formattedDate,
                 orderTime: orderTime.value,
                 orderTotal: orderTotal.value || '0',
@@ -2042,7 +1975,6 @@
                 worksDescription: worksDescription.value || '',
                 equipment: equipment.join(', ') || '—',
                 chemistry: chemistry.join(', ') || '—',
-                workflow: workflow.join(', ') || '—',
                 createdAt: new Date().toISOString(),
                 telegramMessageId: telegramMessageId || ''
             };
@@ -2158,12 +2090,10 @@
             customerAddress.value = '';
             customerFlat.value = '';
             customerCity.value = '';
-            telegramChannel.value = '';
             worksDescription.value = '';
             
             equipmentOptions.forEach(opt => opt.classList.remove('selected'));
             chemistryOptions.forEach(opt => opt.classList.remove('selected'));
-            workflowOptions.forEach(opt => opt.classList.remove('selected'));
             
             step1.classList.add('active');
             step1.classList.remove('completed');
