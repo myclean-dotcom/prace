@@ -41,35 +41,32 @@ function doPost(e) {
   try {
     const event = e || {};
     const raw = event.postData && event.postData.contents ? event.postData.contents : null;
+    const param = event.parameter || {};
+    const flatParameters = flattenParameters(event.parameters || {});
     let body = {};
 
     if (raw) {
       try {
         body = JSON.parse(raw);
       } catch (err) {
-        body = event.parameter || {};
-        if (body && body.json) {
-          try {
-            body = JSON.parse(body.json);
-          } catch (err2) {
-            // оставляем body как есть, ниже вернём unknown action с логами
-          }
-        }
-      }
-    } else if (event.parameter && event.parameter.json) {
-      // Когда запрос отправлен как form-urlencoded с полем `json`
-      try {
-        body = JSON.parse(event.parameter.json);
-      } catch (err) {
-        body = event.parameter || {};
+        // raw может быть "json=%7B...%7D" или "payload=..."
+        body = parseFormEncoded(raw) || param || flatParameters || {};
       }
     } else {
-      body = event.parameter || {};
+      body = Object.keys(param).length ? param : flatParameters;
+    }
+
+    body = normalizeIncomingBody(body);
+
+    // Последний fallback: иногда нужные данные остаются только в parameters
+    if ((!body.action && !body.orderId) && Object.keys(flatParameters).length) {
+      body = normalizeIncomingBody(flatParameters);
     }
 
     // Логируем вход для отладки (посмотрите Execution logs)
     try { Logger.log('doPost raw: ' + String(raw)); } catch (e) {}
-    try { Logger.log('doPost parameters: ' + JSON.stringify(event.parameter || {})); } catch (e) {}
+    try { Logger.log('doPost parameters: ' + JSON.stringify(param)); } catch (e) {}
+    try { Logger.log('doPost parameters(flat): ' + JSON.stringify(flatParameters)); } catch (e) {}
     try { Logger.log('doPost body: ' + JSON.stringify(body)); } catch (e) {}
 
     // Обработка Telegram обновлений (callback_query или сообщения)
@@ -82,11 +79,99 @@ function doPost(e) {
       return createOrUpdateOrder(body);
     }
 
-    return jsonResponse({ ok: false, error: 'unknown action' }, 400);
+    return jsonResponse({
+      ok: false,
+      error: 'unknown action',
+      details: {
+        bodyKeys: Object.keys(body || {}),
+        rawPresent: !!raw
+      }
+    }, 400);
   } catch (err) {
     Logger.log('Error in doPost: ' + err.message);
     return jsonResponse({ ok: false, error: err.message }, 500);
   }
+}
+
+function flattenParameters(parameters) {
+  const out = {};
+  const src = parameters || {};
+  const keys = Object.keys(src);
+
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const v = src[k];
+    out[k] = Array.isArray(v) ? v[0] : v;
+  }
+
+  return out;
+}
+
+function parseFormEncoded(raw) {
+  const text = String(raw || '');
+  if (!text || text.indexOf('=') === -1) return null;
+
+  const obj = {};
+  const pairs = text.split('&');
+
+  for (let i = 0; i < pairs.length; i++) {
+    if (!pairs[i]) continue;
+    const parts = pairs[i].split('=');
+    const key = decodeURIComponent((parts[0] || '').replace(/\+/g, ' '));
+    const value = decodeURIComponent((parts.slice(1).join('=') || '').replace(/\+/g, ' '));
+    if (!key) continue;
+    obj[key] = value;
+  }
+
+  return obj;
+}
+
+function tryParseJson(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value);
+  } catch (e) {
+    return null;
+  }
+}
+
+function normalizeIncomingBody(body) {
+  let current = body || {};
+
+  for (let i = 0; i < 6; i++) {
+    if (typeof current === 'string') {
+      const parsedString = tryParseJson(current);
+      if (parsedString) {
+        current = parsedString;
+        continue;
+      }
+      break;
+    }
+
+    if (!current || typeof current !== 'object') break;
+
+    const parsedJson = tryParseJson(current.json);
+    if (parsedJson) {
+      current = parsedJson;
+      continue;
+    }
+
+    const parsedPayload = tryParseJson(current.payload);
+    if (parsedPayload) {
+      current = parsedPayload;
+      continue;
+    }
+
+    const parsedData = tryParseJson(current.data);
+    if (parsedData) {
+      current = parsedData;
+      continue;
+    }
+
+    break;
+  }
+
+  return (current && typeof current === 'object') ? current : {};
 }
 
 /* ---------- Создание/обновление заявки ---------- */
