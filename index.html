@@ -1331,7 +1331,7 @@
         const CONFIG = {
             TELEGRAM_BOT_TOKEN: '',
             TELEGRAM_CHAT_ID: '',
-            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxFjX65pjrnrM-nL35eJzJL5YWPzhmkVD-nIkRIJ6I/exec',
+            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec',
             CITY_TELEGRAM_CHATS: {
                 'Новосибирск': '-1003875039787'
             },
@@ -1502,28 +1502,67 @@
             masterPay.addEventListener('input', calculateMasterPay);
         }
 
-        async function checkTelegramBot() {
-            try {
-                const payload = new URLSearchParams();
-                payload.append('action', 'check_bot');
+        async function postToBackend(payload) {
+            const url = String(CONFIG.GOOGLE_SCRIPT_URL || '').trim();
+            if (!url) {
+                return { success: false, error: 'Не задан URL backend (GOOGLE_SCRIPT_URL).' };
+            }
 
-                const response = await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
+            try {
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
                     body: payload.toString()
                 });
-                const data = await response.json();
 
-                if (response.ok && data && data.ok) {
-                    const name = data.bot && data.bot.username ? ` @${data.bot.username}` : '';
-                    showStatus(`✅ Telegram бот подключен${name}. Чат выбирается автоматически по городу.`, 'success');
-                } else {
-                    const err = (data && data.error) ? data.error : 'Проверьте Script Properties и деплой Web App.';
-                    showStatus(`❌ Ошибка Telegram бота: ${err}`, 'error');
+                const text = await response.text();
+                let json = null;
+                try {
+                    json = JSON.parse(text);
+                } catch (err) {
+                    return {
+                        success: false,
+                        status: response.status,
+                        error: 'Сервер вернул не JSON (проверьте доступ Web App: "Кто имеет доступ: Все").',
+                        raw: text ? text.slice(0, 300) : ''
+                    };
                 }
+
+                if (!response.ok || !json || json.ok === false) {
+                    return {
+                        success: false,
+                        status: response.status,
+                        response: json,
+                        error: (json && (json.error || json.note)) || `HTTP ${response.status}`
+                    };
+                }
+
+                return { success: true, status: response.status, response: json };
             } catch (error) {
-                showStatus(`❌ Не удалось проверить Telegram бота: ${error.message}`, 'error');
+                const msg = String(error && error.message || '');
+                const hint = msg.indexOf('Load failed') !== -1
+                    ? 'Load failed. Обычно это значит, что Web App URL недоступен или деплой не публичный ("Кто имеет доступ: Все").'
+                    : msg;
+                return { success: false, error: hint };
             }
+        }
+
+        async function checkTelegramBot() {
+            const payload = new URLSearchParams();
+            payload.append('action', 'check_bot');
+
+            const result = await postToBackend(payload);
+            if (result.success) {
+                const data = result.response || {};
+                const name = data.bot && data.bot.username ? ` @${data.bot.username}` : '';
+                showStatus(`✅ Telegram бот подключен${name}. Чат выбирается автоматически по городу.`, 'success');
+                return;
+            }
+
+            const backendError = (result.response && (result.response.error || result.response.note))
+                || result.error
+                || 'Проверьте Script Properties и деплой Web App.';
+            showStatus(`❌ Ошибка Telegram бота: ${backendError}`, 'error');
         }
 
         async function sendToTelegramGroup(orderText) {
@@ -1635,57 +1674,22 @@
         async function saveToGoogleSheets() {
             if (!currentOrderData) return { success: false, error: 'Нет данных' };
 
-            try {
-                // Для максимальной совместимости отправляем:
-                // 1) плоские поля формы (action, orderId, customerName, ...)
-                // 2) полный JSON в поле `json`
-                // Тогда backend обработает даже если JSON-парсинг не сработает.
-                const payload = new URLSearchParams();
-                const requestData = Object.assign({ action: 'create' }, currentOrderData);
+            // Для максимальной совместимости отправляем:
+            // 1) плоские поля формы (action, orderId, customerName, ...)
+            // 2) полный JSON в поле `json`
+            // Тогда backend обработает даже если JSON-парсинг не сработает.
+            const payload = new URLSearchParams();
+            const requestData = Object.assign({ action: 'create' }, currentOrderData);
 
-                payload.append('action', 'create');
-                Object.keys(currentOrderData || {}).forEach((key) => {
-                    const value = currentOrderData[key];
-                    if (value === undefined || value === null) return;
-                    payload.append(key, String(value));
-                });
-                payload.append('json', JSON.stringify(requestData));
+            payload.append('action', 'create');
+            Object.keys(currentOrderData || {}).forEach((key) => {
+                const value = currentOrderData[key];
+                if (value === undefined || value === null) return;
+                payload.append(key, String(value));
+            });
+            payload.append('json', JSON.stringify(requestData));
 
-                const resp = await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                    body: payload.toString()
-                });
-
-                const text = await resp.text();
-                let json = null;
-                try {
-                    json = JSON.parse(text);
-                } catch (err) {
-                    const hint = text && text.toLowerCase().includes('<!doctype')
-                        ? 'Сервер вернул HTML. Проверьте доступ к Web App (должно быть "Кто угодно").'
-                        : 'Сервер вернул не-JSON ответ.';
-                    return {
-                        success: false,
-                        status: resp.status,
-                        error: `${hint} HTTP ${resp.status}`,
-                        raw: text ? text.slice(0, 300) : ''
-                    };
-                }
-
-                if (!resp.ok || json.ok === false) {
-                    return {
-                        success: false,
-                        status: resp.status,
-                        response: json,
-                        error: json.error || json.note || `HTTP ${resp.status}`
-                    };
-                }
-
-                return { success: true, response: json, status: resp.status };
-            } catch (error) {
-                return { success: false, error: error.message };
-            }
+            return postToBackend(payload);
         }
 
         function normalizeTelegramChannel(value) {

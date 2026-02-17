@@ -4,8 +4,8 @@
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
-const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbxFjX65pjrnrM-nL35eJzJL5YWPzhmkVD-nIkRIJ6I/exec';
-const BUILD_VERSION = '2026-02-17-stable-take-flow-v9';
+const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
+const BUILD_VERSION = '2026-02-17-stable-take-flow-v11';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
@@ -231,9 +231,10 @@ function createOrUpdateOrder(payload) {
 
   // Генерируем краткое сообщение для группы
   const briefText = generateBriefText(order);
+  const takeCallbackData = makeTakeCallbackData(order.orderId);
   const keyboard = { 
     inline_keyboard: [[
-      { text: "✅ ВЫХОЖУ НА ЗАЯВКУ", callback_data: `take_${order.orderId}` }
+      { text: "✅ ВЫХОЖУ НА ЗАЯВКУ", callback_data: takeCallbackData }
     ]]
   };
 
@@ -328,8 +329,9 @@ function handleTelegramUpdate(body) {
       return jsonResponse({ ok: true, duplicateCallback: true, buildVersion: BUILD_VERSION }, 200);
     }
     
-    if (data.indexOf('take_') === 0) {
-      const orderId = String(data).replace(/^take_/, '').trim();
+    const takePayload = parseTakeCallbackData(data);
+    if (takePayload) {
+      const orderId = String(takePayload.orderId || '').trim();
       if (!orderId) {
         answerCallback(token, callbackId, '❌ Некорректный ID заявки.');
         return jsonResponse({ ok: false, error: 'Invalid order id in callback', buildVersion: BUILD_VERSION }, 200);
@@ -444,7 +446,7 @@ function handleTelegramUpdate(body) {
 
           return jsonResponse({ ok: true, masterAccepted: true, buildVersion: BUILD_VERSION }, 200);
         } catch (err) {
-          Logger.log('Error while processing callback take_: ' + err.message + '\n' + (err.stack || ''));
+          Logger.log('Error while processing callback take button: ' + err.message + '\n' + (err.stack || ''));
           answerCallback(token, callbackId, '❌ Ошибка обработки кнопки. Нажмите еще раз через 2-3 секунды.');
           return jsonResponse({ ok: false, error: 'callback processing failed', details: err.message, buildVersion: BUILD_VERSION }, 200);
         }
@@ -1287,6 +1289,32 @@ function escapeTelegramHtml(value) {
     .replace(/>/g, '&gt;');
 }
 
+function makeTakeCallbackData(orderId) {
+  const id = String(orderId || '').trim();
+  const suffix = String(Date.now()).slice(-6);
+  return `takev2|${id}|${suffix}`;
+}
+
+function parseTakeCallbackData(data) {
+  const raw = String(data || '').trim();
+  if (!raw) return null;
+
+  if (raw.indexOf('takev2|') === 0) {
+    const parts = raw.split('|');
+    const id = String(parts[1] || '').trim();
+    if (!id) return null;
+    return { version: 'v2', orderId: id };
+  }
+
+  if (raw.indexOf('take_') === 0) {
+    const id = raw.replace(/^take_/, '').trim();
+    if (!id) return null;
+    return { version: 'v1', orderId: id };
+  }
+
+  return null;
+}
+
 function answerCallback(token, callbackId, text) {
   try {
     urlFetchJson(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
@@ -1723,11 +1751,16 @@ function __checkWebhookPublicAccess() {
     });
     const statusCode = resp.getResponseCode();
     const body = resp.getContentText() || '';
+    const lowerBody = body.toLowerCase();
+    const looksLikeGoogleLogin =
+      lowerBody.indexOf('accounts.google.com') !== -1 ||
+      lowerBody.indexOf('v3/signin') !== -1;
     return {
       ok: true,
       url: url,
       statusCode: statusCode,
-      okPublic: statusCode >= 200 && statusCode < 300,
+      okPublic: statusCode >= 200 && statusCode < 300 && !looksLikeGoogleLogin,
+      looksLikeGoogleLogin: looksLikeGoogleLogin,
       bodySnippet: body.slice(0, 200)
     };
   } catch (e) {
