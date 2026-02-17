@@ -1330,7 +1330,10 @@ function __setTelegramWebhook(webAppUrl) {
 
   const resp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
     method: 'post',
-    payload: JSON.stringify({ url: url })
+    payload: JSON.stringify({
+      url: url,
+      allowed_updates: getTelegramAllowedUpdates()
+    })
   });
 
   Logger.log(JSON.stringify(resp));
@@ -1391,7 +1394,10 @@ function __resetTelegramWebhook(webAppUrl) {
 
   const setResp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
     method: 'post',
-    payload: JSON.stringify({ url: url })
+    payload: JSON.stringify({
+      url: url,
+      allowed_updates: getTelegramAllowedUpdates()
+    })
   });
 
   Logger.log('deleteWebhook: ' + JSON.stringify(delResp));
@@ -1403,6 +1409,10 @@ function normalizeWebhookUrlToExec(url) {
   const raw = String(url || '').trim();
   if (!raw) return '';
   return raw.replace(/\/dev(\?|$)/, '/exec$1');
+}
+
+function getTelegramAllowedUpdates() {
+  return ['message', 'edited_message', 'callback_query'];
 }
 
 // Быстрая настройка webhook строго на prod URL (/exec)
@@ -1438,11 +1448,14 @@ function __diagnoseTelegramButton() {
   const currentWebhookUrl = String(result.url || '');
   const pendingCount = Number(result.pending_update_count || 0);
   const lastError = String(result.last_error_message || '');
+  const currentAllowedUpdates = Array.isArray(result.allowed_updates) ? result.allowed_updates : [];
   const publicCheck = __checkWebhookPublicAccess();
 
   let advice = 'Webhook выглядит корректно. Если кнопка не работает, нажмите ее и повторно запустите __diagnoseTelegramButton().';
   if (!currentWebhookUrl || currentWebhookUrl.indexOf('/exec') === -1) {
     advice = 'Webhook не на /exec. Запустите __setWebhookProd().';
+  } else if (currentAllowedUpdates.length && currentAllowedUpdates.indexOf('callback_query') === -1) {
+    advice = 'В webhook не включен callback_query. Запустите __setWebhookProd() для переустановки.';
   } else if (lastError.indexOf('401') !== -1 || (publicCheck && publicCheck.statusCode === 401)) {
     advice = 'Telegram получает 401 от Web App. Переразверните Web App: "Выполнять от моего имени" и "Доступ: Все", затем запустите __setWebhookProd().';
   } else if (publicCheck && !publicCheck.okPublic) {
@@ -1455,6 +1468,7 @@ function __diagnoseTelegramButton() {
     expectedExecUrl: expectedExecUrl,
     webhookOnExec: !!currentWebhookUrl && currentWebhookUrl.indexOf('/exec') !== -1,
     webhookMatchesCurrentDeployment: !!expectedExecUrl && currentWebhookUrl === expectedExecUrl,
+    allowedUpdates: currentAllowedUpdates,
     pendingUpdateCount: pendingCount,
     lastError: lastError || 'нет',
     publicAccess: publicCheck,
