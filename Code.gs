@@ -1266,6 +1266,7 @@ function __setTelegramWebhook(webAppUrl) {
     }
   }
   if (!url) throw new Error('Передайте webAppUrl или сначала задеплойте Web App');
+  url = normalizeWebhookUrlToExec(url);
 
   const resp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
     method: 'post',
@@ -1315,6 +1316,7 @@ function __resetTelegramWebhook(webAppUrl) {
     }
   }
   if (!url) throw new Error('Передайте webAppUrl или сначала задеплойте Web App');
+  url = normalizeWebhookUrlToExec(url);
 
   const delResp = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
     method: 'post',
@@ -1329,4 +1331,10 @@ function __resetTelegramWebhook(webAppUrl) {
   Logger.log('deleteWebhook: ' + JSON.stringify(delResp));
   Logger.log('setWebhook: ' + JSON.stringify(setResp));
   return { deleteWebhook: delResp, setWebhook: setResp };
+}
+
+function normalizeWebhookUrlToExec(url) {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  return raw.replace(/\/dev(\?|$)/, '/exec$1');
 }
