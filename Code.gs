@@ -747,34 +747,45 @@ function sendReminders() {
 function parseOrderDateTime(dateStr, timeStr) {
   try {
     let d = null;
-    
-    // Формат DD.MM или DD.MM.YYYY
-    if (dateStr.indexOf('.') !== -1) {
-      const parts = dateStr.split('.');
-      if (parts.length === 3) {
-        d = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
-      } else if (parts.length === 2) {
-        const year = new Date().getFullYear();
-        d = new Date(year, Number(parts[1]) - 1, Number(parts[0]));
-      }
-    } 
-    // Формат YYYY-MM-DD
-    else if (dateStr.indexOf('-') !== -1) {
-      d = new Date(dateStr);
+
+    if (Object.prototype.toString.call(dateStr) === '[object Date]' && !isNaN(dateStr.getTime())) {
+      d = new Date(dateStr.getTime());
     } else {
-      return null;
-    }
-    
-    if (!d || isNaN(d.getTime())) return null;
-    
-    // Установиставляем время
-    if (timeStr) {
-      const t = timeStr.split(':');
-      if (t.length >= 2) {
-        d.setHours(Number(t[0]), Number(t[1]), 0, 0);
+      const rawDate = String(dateStr || '').trim();
+      if (!rawDate) return null;
+
+      // Формат DD.MM или DD.MM.YYYY
+      if (rawDate.indexOf('.') !== -1) {
+        const parts = rawDate.split('.');
+        if (parts.length === 3) {
+          d = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+        } else if (parts.length === 2) {
+          const year = new Date().getFullYear();
+          d = new Date(year, Number(parts[1]) - 1, Number(parts[0]));
+        }
+      }
+      // Формат YYYY-MM-DD
+      else if (rawDate.indexOf('-') !== -1) {
+        d = new Date(rawDate);
+      } else {
+        return null;
       }
     }
-    
+
+    if (!d || isNaN(d.getTime())) return null;
+
+    // Устанавливаем время
+    if (timeStr) {
+      if (Object.prototype.toString.call(timeStr) === '[object Date]' && !isNaN(timeStr.getTime())) {
+        d.setHours(timeStr.getHours(), timeStr.getMinutes(), 0, 0);
+      } else {
+        const t = String(timeStr).split(':');
+        if (t.length >= 2) {
+          d.setHours(Number(t[0]), Number(t[1]), 0, 0);
+        }
+      }
+    }
+
     return d;
   } catch (e) {
     return null;
@@ -782,103 +793,181 @@ function parseOrderDateTime(dateStr, timeStr) {
 }
 
 /* ---------- Генерация текстов для Telegram ---------- */
+function pad2(value) {
+  return String(value).padStart(2, '0');
+}
+
+function formatDateForDisplay(value) {
+  if (value === null || value === undefined || value === '') return '';
+
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'dd.MM.yyyy');
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return '';
+
+  const dmY = raw.match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?$/);
+  if (dmY) {
+    const day = pad2(dmY[1]);
+    const month = pad2(dmY[2]);
+    const year = dmY[3] || String(new Date().getFullYear());
+    return `${day}.${month}.${year}`;
+  }
+
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    return `${iso[3]}.${iso[2]}.${iso[1]}`;
+  }
+
+  const parsed = new Date(raw);
+  if (!isNaN(parsed.getTime())) {
+    return Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'dd.MM.yyyy');
+  }
+
+  return raw;
+}
+
+function formatTimeForDisplay(value) {
+  if (value === null || value === undefined || value === '') return '';
+
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'HH:mm');
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return '';
+
+  const hhmm = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (hhmm) {
+    return `${pad2(hhmm[1])}:${hhmm[2]}`;
+  }
+
+  const parsed = new Date(raw);
+  if (!isNaN(parsed.getTime())) {
+    return Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'HH:mm');
+  }
+
+  return raw;
+}
+
+function formatDateTimeForDisplay(dateValue, timeValue) {
+  const date = formatDateForDisplay(dateValue);
+  const time = formatTimeForDisplay(timeValue);
+
+  if (date && time) return `${date} в ${time}`;
+  if (date) return date;
+  if (time) return time;
+  return 'не указаны';
+}
+
 function generateBriefText(order) {
+  const dateTime = formatDateTimeForDisplay(order.orderDate, order.orderTime);
+  const fullAddress = [order.customerAddress, order.customerFlat].filter(function(v) {
+    return String(v || '').trim();
+  }).join(', ');
+
   let text = `🧹 <b>ЗАЯВКА №${order.orderId}</b>\n`;
   text += `───────────────────\n`;
-  text += `📍 Город: ${order.customerCity}\n`;
-  text += `🔧 Тип уборки: ${order.cleaningType}\n`;
-  text += `📏 Площадь: ${order.area} м²\n`;
-  
-  if (order.orderTime) {
-    text += `⏰ Время: ${order.orderTime}\n`;
-  }
-  
-  text += `💰 Оплата мастеру: ${order.masterPay || order.orderTotal} руб\n`;
-  text += `📍 Адрес: ${order.customerAddress}\n`;
-  
+  text += `📍 Город: ${escapeTelegramHtml(order.customerCity || 'не указан')}\n`;
+  text += `🔧 Тип уборки: ${escapeTelegramHtml(order.cleaningType || 'не указан')}\n`;
+  text += `📏 Площадь: ${escapeTelegramHtml(order.area || 'не указана')} м²\n`;
+  text += `🗓 Дата и время: ${escapeTelegramHtml(dateTime)}\n`;
+  text += `💰 Оплата мастеру: ${escapeTelegramHtml(order.masterPay || order.orderTotal || '0')} руб\n`;
+  text += `📍 Адрес: ${escapeTelegramHtml(fullAddress || 'не указан')}\n`;
+
   if (order.worksDescription) {
-    text += `\n📝 Пожелания: ${order.worksDescription}\n`;
+    text += `\n📝 Пожелания: ${escapeTelegramHtml(order.worksDescription)}\n`;
   }
-  
+
   if (order.equipment && order.equipment !== '—') {
-    text += `\n🛠 Оборудование: ${order.equipment}\n`;
+    text += `\n🛠 Оборудование: ${escapeTelegramHtml(order.equipment)}\n`;
   }
-  
+
   if (order.chemistry && order.chemistry !== '—') {
-    text += `🧴 Химия: ${order.chemistry}\n`;
+    text += `🧴 Химия: ${escapeTelegramHtml(order.chemistry)}\n`;
   }
-  
+
   return text;
 }
 
 function generateFullText(orderRow, orderData) {
-  // orderRow - данные из таблицы
-  // orderData - может быть пусто, используем что есть
-  
-  let text = `🧹 <b>ПОЛНАЯ ИНФОРМАЦИЯ О ЗАЯВКЕ №${orderRow['Номер заявки']}</b>\n`;
+  const date = formatDateForDisplay(orderRow['Дата уборки']);
+  const time = formatTimeForDisplay(orderRow['Время уборки']);
+  const dateTime = formatDateTimeForDisplay(orderRow['Дата уборки'], orderRow['Время уборки']);
+
+  const city = escapeTelegramHtml(orderRow['Город'] || 'не указан');
+  const cleaningType = escapeTelegramHtml(orderRow['Тип уборки'] || 'не указан');
+  const area = escapeTelegramHtml(orderRow['Площадь (м²)'] || 'не указана');
+  const orderId = escapeTelegramHtml(orderRow['Номер заявки'] || '');
+  const clientName = escapeTelegramHtml(orderRow['Имя клиента'] || 'не указано');
+  const clientPhone = escapeTelegramHtml(orderRow['Телефон клиента'] || 'не указан');
+  const orderSum = escapeTelegramHtml(orderRow['Сумма заказа'] || '0');
+  const masterPay = escapeTelegramHtml(orderRow['Зарплата мастерам'] || '0');
+
+  const addressParts = [orderRow['Улица и дом'], orderRow['Квартира/офис']].filter(function(v) {
+    return String(v || '').trim();
+  });
+  const fullAddress = addressParts.join(', ');
+  const safeAddress = escapeTelegramHtml(fullAddress || 'не указан');
+
+  const equipment = String(orderRow['Оборудование'] || '').trim() || '—';
+  const chemistry = String(orderRow['Химия'] || '').trim() || '—';
+  const description = String(orderRow['Описание работ'] || '').trim();
+
+  let clientMessage = 'Здравствуйте! Я мастер по клинингу.';
+  if (date && time) {
+    clientMessage += ` Приеду к вам ${date} в ${time}.`;
+  } else if (date) {
+    clientMessage += ` Приеду к вам ${date}.`;
+  } else if (time) {
+    clientMessage += ` Приеду к вам в ${time}.`;
+  } else {
+    clientMessage += ' Время и дату уточню дополнительно.';
+  }
+  if (fullAddress) {
+    clientMessage += ` Адрес: ${fullAddress}.`;
+  }
+  clientMessage += ' До встречи!';
+
+  let text = `🧹 <b>ПОЛНАЯ ИНФОРМАЦИЯ О ЗАЯВКЕ №${orderId}</b>\n`;
   text += `────────────────────────────────────\n\n`;
-  
-  text += `📋 <b>ОСНОВНАЯ ИНФОРМАЦИЯ:</b>\n`;
-  text += `───────────────────────\n`;
-  text += `Город: ${orderRow['Город']}\n`;
-  text += `Тип уборки: ${orderRow['Тип уборки']}\n`;
-  text += `Площадь: ${orderRow['Площадь (м²)']} м²\n`;
-  
-  if (orderRow['Дата уборки']) {
-    text += `Дата: ${orderRow['Дата уборки']}\n`;
+
+  text += `📋 <b>ОСНОВНАЯ ИНФОРМАЦИЯ</b>\n`;
+  text += `🏙 Город: ${city}\n`;
+  text += `🧽 Вид уборки: ${cleaningType}\n`;
+  text += `📐 Площадь: ${area} м²\n`;
+  text += `🗓 Дата и время: ${escapeTelegramHtml(dateTime)}\n`;
+  text += `📍 Адрес: ${safeAddress}\n\n`;
+
+  text += `👤 <b>ДАННЫЕ КЛИЕНТА</b>\n`;
+  text += `Имя: ${clientName}\n`;
+  text += `Телефон: <code>${clientPhone}</code>\n\n`;
+
+  text += `🧰 <b>ЧТО ВЗЯТЬ С СОБОЙ</b>\n`;
+  text += `Оборудование: ${escapeTelegramHtml(equipment)}\n`;
+  text += `Химия: ${escapeTelegramHtml(chemistry)}\n\n`;
+
+  if (description) {
+    text += `📝 <b>ПОЖЕЛАНИЯ / ОПИСАНИЕ РАБОТ</b>\n`;
+    text += `${escapeTelegramHtml(description)}\n\n`;
   }
-  
-  if (orderRow['Время уборки']) {
-    text += `Время: ${orderRow['Время уборки']}\n`;
-  }
-  
-  text += `\n`;
-  
-  text += `👤 <b>ДАННЫЕ КЛИЕНТА:</b>\n`;
-  text += `──────────────────\n`;
-  text += `Имя: ${orderRow['Имя клиента']}\n`;
-  text += `📱 Телефон: <code>${orderRow['Телефон клиента']}</code>\n`;
-  text += `📍 Адрес: ${orderRow['Улица и дом']}\n`;
-  
-  if (orderRow['Квартира/офис']) {
-    text += `Квартира/офис: ${orderRow['Квартира/офис']}\n`;
-  }
-  
-  text += `\n`;
-  
-  text += `💰 <b>ФИНАНСЫ:</b>\n`;
-  text += `──────────\n`;
-  text += `Сумма заказа: ${orderRow['Сумма заказа']} руб\n`;
-  text += `Ваша оплата: ${orderRow['Зарплата мастерам']} руб\n`;
-  text += `\n`;
-  
-  if (orderRow['Оборудование'] && orderRow['Оборудование'] !== '—') {
-    text += `🛠 <b>ОБОРУДОВАНИЕ:</b>\n`;
-    text += `──────────────\n${orderRow['Оборудование']}\n\n`;
-  }
-  
-  if (orderRow['Химия'] && orderRow['Химия'] !== '—') {
-    text += `🧴 <b>ХИМИЯ:</b>\n`;
-    text += `──────────\n${orderRow['Химия']}\n\n`;
-  }
-  
-  if (orderRow['Описание работ']) {
-    text += `📝 <b>ПОЖЕЛАНИЯ/ОПИСАНИЕ:</b>\n`;
-    text += `────────────────────\n${orderRow['Описание работ']}\n\n`;
-  }
-  
-  text += `───────────────────────────────────\n`;
-  text += `✅ <b>ЧТО НУЖНО СДЕЛАТЬ:</b>\n`;
-  text += `1️⃣ Звоните клиенту и уточняйте детали\n`;
-  text += `2️⃣ Отправьте фото при прибытии на объект\n`;
-  text += `3️⃣ Отправьте фото использованной химии\n`;
-  text += `4️⃣ Отправьте фото выполненных работ\n`;
-  text += `5️⃣ Получите фото подписанного акта\n`;
-  text += `6️⃣ Проведите расчет с клиентом\n\n`;
-  text += `⏰ <b>НАПОМИНАНИЯ:</b>\n`;
-  text += `  • Вы получите напоминание за 24 часа\n`;
-  text += `  • Вы получите напоминание за 2 часа`;
-  
+
+  text += `💰 <b>ФИНАНСЫ</b>\n`;
+  text += `Сумма заказа: ${orderSum} руб\n`;
+  text += `Ваша оплата: ${masterPay} руб\n\n`;
+
+  text += `✅ <b>ИНСТРУКЦИЯ К ВЫПОЛНЕНИЮ</b>\n`;
+  text += `1️⃣ Напишите клиенту готовое сообщение из блока ниже.\n`;
+  text += `2️⃣ Подготовьтесь к заявке: заранее возьмите нужное оборудование и химию, спланируйте маршрут и приезжайте без опозданий.\n`;
+  text += `3️⃣ По прибытии на объект отправьте фото химии и оборудования.\n`;
+  text += `4️⃣ После завершения работ отправьте фото результата.\n`;
+  text += `5️⃣ Отправьте фото подписанного акта выполненных работ.\n`;
+  text += `6️⃣ Подтвердите оплату от клиента.\n\n`;
+
+  text += `💬 <b>ГОТОВОЕ СООБЩЕНИЕ КЛИЕНТУ</b>\n`;
+  text += `<code>${escapeTelegramHtml(clientMessage)}</code>`;
+
   return text;
 }
 
