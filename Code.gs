@@ -5,7 +5,7 @@ const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
 const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
-const BUILD_VERSION = '2026-02-17-stable-take-flow-v6';
+const BUILD_VERSION = '2026-02-17-stable-take-flow-v7';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
@@ -1605,10 +1605,10 @@ function getTelegramAllowedUpdates() {
 function resolveWebhookExecUrl(preferredUrl) {
   let url = String(preferredUrl || '').trim();
   if (!url) {
-    url = String(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY) || '').trim();
+    url = getCurrentServiceExecUrl();
   }
   if (!url) {
-    url = getCurrentServiceExecUrl();
+    url = String(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY) || '').trim();
   }
   if (!url) {
     url = DEFAULT_WEBAPP_EXEC_URL;
@@ -1705,7 +1705,10 @@ function __getBuildInfo() {
     storedWebAppExecUrl: storedExecUrl,
     serviceExecUrl: serviceExecUrl,
     defaultWebAppExecUrl: DEFAULT_WEBAPP_EXEC_URL,
-    resolvedWebhookExecUrl: resolveWebhookExecUrl('')
+    resolvedWebhookExecUrl: resolveWebhookExecUrl(''),
+    note: serviceExecUrl
+      ? 'Webhook должен указывать на serviceExecUrl текущего проекта.'
+      : 'serviceExecUrl пустой: проект, вероятно, не развернут как Web App.'
   };
   Logger.log(JSON.stringify(info));
   return info;
@@ -1745,10 +1748,11 @@ function __hardResetBotRouting() {
   const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан');
 
-  const primaryUrl = resolveWebhookExecUrl('');
-  if (!primaryUrl) throw new Error('Не удалось определить URL Web App');
-
   const serviceUrl = getCurrentServiceExecUrl();
+  const storedUrl = String(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY) || '').trim();
+  const fallbackUrl = normalizeWebhookUrlToExec(DEFAULT_WEBAPP_EXEC_URL);
+  const primaryUrl = serviceUrl || normalizeWebhookUrlToExec(storedUrl) || fallbackUrl;
+  if (!primaryUrl) throw new Error('Не удалось определить URL Web App');
 
   function applyWebhook(url) {
     const delResp = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
@@ -1789,6 +1793,10 @@ function __hardResetBotRouting() {
   if (mismatch && serviceUrl && serviceUrl !== primaryUrl) {
     routing = applyWebhook(serviceUrl);
     switchedToServiceUrl = true;
+  } else if (mismatch && storedUrl && normalizeWebhookUrlToExec(storedUrl) !== routing.targetUrl) {
+    routing = applyWebhook(normalizeWebhookUrlToExec(storedUrl));
+  } else if (mismatch && fallbackUrl && fallbackUrl !== routing.targetUrl) {
+    routing = applyWebhook(fallbackUrl);
   }
 
   PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, String(routing.targetUrl || '').trim());
@@ -1797,6 +1805,8 @@ function __hardResetBotRouting() {
     buildVersion: BUILD_VERSION,
     primaryUrl: primaryUrl,
     serviceUrl: serviceUrl,
+    storedUrl: normalizeWebhookUrlToExec(storedUrl),
+    fallbackUrl: fallbackUrl,
     switchedToServiceUrl: switchedToServiceUrl,
     targetUrl: routing.targetUrl,
     deleteWebhook: routing.deleteWebhook,
