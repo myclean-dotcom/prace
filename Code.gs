@@ -3,8 +3,9 @@
 
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
+const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
 const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
-const BUILD_VERSION = '2026-02-17-stable-take-flow-v5';
+const BUILD_VERSION = '2026-02-17-stable-take-flow-v6';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
@@ -1209,6 +1210,7 @@ function ensureWebhookPinnedToCurrentDeployment(token) {
       Logger.log('auto setWebhook to current deployment: ' + JSON.stringify(setResp));
     }
 
+    PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, expectedUrl);
     PROP.setProperty(throttleKey, String(now));
   } catch (e) {
     Logger.log('ensureWebhookPinnedToCurrentDeployment failed: ' + e.message);
@@ -1561,6 +1563,7 @@ function __resetTelegramWebhook(webAppUrl) {
 
   let url = resolveWebhookExecUrl(webAppUrl);
   if (!url) throw new Error('Передайте webAppUrl или сначала задеплойте Web App');
+  PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, url);
 
   const delResp = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
     method: 'post',
@@ -1586,6 +1589,15 @@ function normalizeWebhookUrlToExec(url) {
   return raw.replace(/\/dev(\?|$)/, '/exec$1');
 }
 
+function getCurrentServiceExecUrl() {
+  try {
+    const serviceUrl = ScriptApp.getService().getUrl();
+    return normalizeWebhookUrlToExec(serviceUrl);
+  } catch (e) {
+    return '';
+  }
+}
+
 function getTelegramAllowedUpdates() {
   return ['message', 'edited_message', 'callback_query'];
 }
@@ -1593,14 +1605,13 @@ function getTelegramAllowedUpdates() {
 function resolveWebhookExecUrl(preferredUrl) {
   let url = String(preferredUrl || '').trim();
   if (!url) {
-    url = DEFAULT_WEBAPP_EXEC_URL;
+    url = String(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY) || '').trim();
   }
   if (!url) {
-    try {
-      url = ScriptApp.getService().getUrl();
-    } catch (e) {
-      url = '';
-    }
+    url = getCurrentServiceExecUrl();
+  }
+  if (!url) {
+    url = DEFAULT_WEBAPP_EXEC_URL;
   }
 
   return normalizeWebhookUrlToExec(url);
@@ -1612,6 +1623,7 @@ function __setWebhookProd() {
   if (!url) {
     throw new Error('Не удалось получить URL сервиса. Сначала разверните Web App.');
   }
+  PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, url);
 
   return __resetTelegramWebhook(url);
 }
@@ -1686,8 +1698,12 @@ function __checkWebhookPublicAccess() {
 }
 
 function __getBuildInfo() {
+  const serviceExecUrl = getCurrentServiceExecUrl();
+  const storedExecUrl = String(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY) || '').trim();
   const info = {
     buildVersion: BUILD_VERSION,
+    storedWebAppExecUrl: storedExecUrl,
+    serviceExecUrl: serviceExecUrl,
     defaultWebAppExecUrl: DEFAULT_WEBAPP_EXEC_URL,
     resolvedWebhookExecUrl: resolveWebhookExecUrl('')
   };
@@ -1695,8 +1711,8 @@ function __getBuildInfo() {
   return info;
 }
 
-function __probeWebhookDoPostVersion() {
-  const url = resolveWebhookExecUrl('');
+function __probeWebhookDoPostVersion(targetUrl) {
+  const url = resolveWebhookExecUrl(targetUrl || '');
   if (!url) return { ok: false, error: 'webhook url not available' };
 
   try {
@@ -1729,34 +1745,64 @@ function __hardResetBotRouting() {
   const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан');
 
-  const url = resolveWebhookExecUrl('');
-  if (!url) throw new Error('Не удалось определить URL Web App');
+  const primaryUrl = resolveWebhookExecUrl('');
+  if (!primaryUrl) throw new Error('Не удалось определить URL Web App');
 
-  const delResp = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
-    method: 'post',
-    payload: JSON.stringify({ drop_pending_updates: true })
-  });
+  const serviceUrl = getCurrentServiceExecUrl();
 
-  const setResp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
-    method: 'post',
-    payload: JSON.stringify({
-      url: url,
-      allowed_updates: getTelegramAllowedUpdates()
-    })
-  });
+  function applyWebhook(url) {
+    const delResp = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
+      method: 'post',
+      payload: JSON.stringify({ drop_pending_updates: true })
+    });
 
-  const infoResp = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, {
-    method: 'get'
-  });
-  const probeDoPost = __probeWebhookDoPostVersion();
+    const setResp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
+      method: 'post',
+      payload: JSON.stringify({
+        url: url,
+        allowed_updates: getTelegramAllowedUpdates()
+      })
+    });
+
+    const infoResp = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, {
+      method: 'get'
+    });
+    const probeDoPost = __probeWebhookDoPostVersion(url);
+
+    return {
+      targetUrl: url,
+      deleteWebhook: delResp,
+      setWebhook: setResp,
+      webhookInfo: infoResp,
+      probeDoPost: probeDoPost
+    };
+  }
+
+  let routing = applyWebhook(primaryUrl);
+  let switchedToServiceUrl = false;
+
+  const probeBuild = routing.probeDoPost && routing.probeDoPost.bodyJson
+    ? String(routing.probeDoPost.bodyJson.buildVersion || '')
+    : '';
+  const mismatch = !probeBuild || probeBuild !== BUILD_VERSION;
+
+  if (mismatch && serviceUrl && serviceUrl !== primaryUrl) {
+    routing = applyWebhook(serviceUrl);
+    switchedToServiceUrl = true;
+  }
+
+  PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, String(routing.targetUrl || '').trim());
 
   const out = {
     buildVersion: BUILD_VERSION,
-    targetUrl: url,
-    deleteWebhook: delResp,
-    setWebhook: setResp,
-    webhookInfo: infoResp,
-    probeDoPost: probeDoPost
+    primaryUrl: primaryUrl,
+    serviceUrl: serviceUrl,
+    switchedToServiceUrl: switchedToServiceUrl,
+    targetUrl: routing.targetUrl,
+    deleteWebhook: routing.deleteWebhook,
+    setWebhook: routing.setWebhook,
+    webhookInfo: routing.webhookInfo,
+    probeDoPost: routing.probeDoPost
   };
   Logger.log(JSON.stringify(out));
   return out;
