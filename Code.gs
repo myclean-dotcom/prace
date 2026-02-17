@@ -39,29 +39,30 @@ const CITY_TELEGRAM_CHAT_MAP = {
 // Главная функция для обработки POST запросов
 function doPost(e) {
   try {
-    const raw = e.postData && e.postData.contents ? e.postData.contents : null;
+    const event = e || {};
+    const raw = event.postData && event.postData.contents ? event.postData.contents : null;
     let body = {};
 
     if (raw) {
       try {
         body = JSON.parse(raw);
       } catch (err) {
-        body = e.parameter || {};
+        body = event.parameter || {};
       }
-    } else if (e.parameter && e.parameter.json) {
+    } else if (event.parameter && event.parameter.json) {
       // Когда запрос отправлен как form-urlencoded с полем `json`
       try {
-        body = JSON.parse(e.parameter.json);
+        body = JSON.parse(event.parameter.json);
       } catch (err) {
-        body = e.parameter || {};
+        body = event.parameter || {};
       }
     } else {
-      body = e.parameter || {};
+      body = event.parameter || {};
     }
 
     // Логируем вход для отладки (посмотрите Execution logs)
     try { Logger.log('doPost raw: ' + String(raw)); } catch (e) {}
-    try { Logger.log('doPost parameters: ' + JSON.stringify(e.parameter || {})); } catch (e) {}
+    try { Logger.log('doPost parameters: ' + JSON.stringify(event.parameter || {})); } catch (e) {}
     try { Logger.log('doPost body: ' + JSON.stringify(body)); } catch (e) {}
 
     // Обработка Telegram обновлений (callback_query или сообщения)
@@ -279,7 +280,21 @@ function getSheet() {
     ss = null;
   }
 
-  if (!ss) ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) {
+    try {
+      ss = SpreadsheetApp.getActiveSpreadsheet();
+    } catch (e) {
+      ss = null;
+    }
+  }
+
+  if (!ss) {
+    throw new Error(
+      'Не удалось открыть Google Таблицу. Укажите Script Property SPREADSHEET_ID ' +
+      'или запустите скрипт как контейнерный (bound) в нужной таблице.'
+    );
+  }
+
   let sheet = ss.getSheetByName(SHEET_NAME);
   
   if (!sheet) {
@@ -811,13 +826,50 @@ function __checkConfiguration() {
   const token = props.getProperty('TELEGRAM_BOT_TOKEN');
   const chatId = props.getProperty('TELEGRAM_CHAT_ID');
   const nskChat = props.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK');
+  const ssId = props.getProperty('SPREADSHEET_ID');
   
   Logger.log('=== CONFIGURATION CHECK ===');
   Logger.log('Bot Token: ' + (token ? '✅ Set' : '❌ Not set'));
   Logger.log('Chat ID: ' + (chatId ? '✅ Set (' + chatId + ')' : '❌ Not set'));
   Logger.log('Novosibirsk Chat: ' + (nskChat ? '✅ Set (' + nskChat + ')' : '⚠️ Not set (used default in code)'));
+  Logger.log('Spreadsheet ID: ' + (ssId ? '✅ Set (' + ssId + ')' : '❌ Not set'));
   Logger.log('Sheet Name: ' + SHEET_NAME);
   Logger.log('========================');
+}
+
+// Проверка доступа к таблице (критично для doPost)
+function __checkSpreadsheetAccess() {
+  const props = PropertiesService.getScriptProperties();
+  const ssId = props.getProperty('SPREADSHEET_ID');
+  Logger.log('=== SPREADSHEET ACCESS CHECK ===');
+  Logger.log('SPREADSHEET_ID property: ' + (ssId || 'NOT SET'));
+
+  try {
+    if (ssId) {
+      const byId = SpreadsheetApp.openById(ssId);
+      Logger.log('openById: ✅ ' + byId.getName());
+    } else {
+      Logger.log('openById: ⚠️ skipped (SPREADSHEET_ID not set)');
+    }
+  } catch (e) {
+    Logger.log('openById: ❌ ' + e.message);
+  }
+
+  try {
+    const active = SpreadsheetApp.getActiveSpreadsheet();
+    Logger.log('getActiveSpreadsheet: ' + (active ? ('✅ ' + active.getName()) : '❌ null'));
+  } catch (e) {
+    Logger.log('getActiveSpreadsheet: ❌ ' + e.message);
+  }
+
+  try {
+    const sheet = getSheet();
+    Logger.log('getSheet(): ✅ ' + sheet.getName());
+  } catch (e) {
+    Logger.log('getSheet(): ❌ ' + e.message);
+  }
+
+  Logger.log('===============================');
 }
 
 // Проверка наличия обязательных заголовков в Google Таблице
@@ -840,6 +892,56 @@ function __testReminders() {
   Logger.log('Testing reminder system...');
   sendReminders();
   Logger.log('✅ Reminders test completed');
+}
+
+// Прямая проверка отправки сообщения в Telegram (без фронтенда)
+function __testTelegramSend() {
+  const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
+  const chat =
+    PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') ||
+    PROP.getProperty('TELEGRAM_CHAT_ID') ||
+    '';
+
+  if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
+  if (!chat) throw new Error('TELEGRAM_CHAT_NOVOSIBIRSK/TELEGRAM_CHAT_ID не задан в Script Properties');
+
+  const resp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: String(chat).trim(),
+      text: '✅ Тест Telegram из Apps Script'
+    })
+  });
+
+  Logger.log(JSON.stringify(resp));
+  return resp;
+}
+
+// Сквозной тест: создает тестовую заявку и пытается отправить в Telegram
+function __testCreateOrder() {
+  const payload = {
+    action: 'create',
+    orderId: 'TEST-' + Date.now().toString().slice(-8),
+    manager: 'Тест',
+    customerName: 'Тест',
+    customerPhone: '+79990000000',
+    customerCity: 'Новосибирск',
+    customerAddress: 'Тестовый адрес',
+    customerFlat: '',
+    orderDate: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd.MM'),
+    orderTime: '12:00',
+    orderTotal: '1000',
+    masterPay: '600',
+    cleaningType: 'Тест',
+    area: '10',
+    chemistry: '—',
+    equipment: '—',
+    worksDescription: 'Тестовая заявка'
+  };
+
+  const resp = createOrUpdateOrder(payload);
+  Logger.log(resp.getContent());
+  return resp;
 }
 
 // Установка webhook Telegram на URL веб-приложения

@@ -1331,7 +1331,7 @@
         const CONFIG = {
             TELEGRAM_BOT_TOKEN: '8471091759:AAGiszC401WRMWcTXXPi9PizsqxX-oAUurI',
             TELEGRAM_CHAT_ID: '',
-            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxvdm8V7iY3PS2AoyIm4GTW7ncvhujJMIEOFeCi37R5G8BPcOudcWt7nQg2j04XU0_T/exec',
+            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbwTJ6yuXk0Nlf1P12sZlmvmYIeRT5MUXS7y0lenUiwsVfEQ3Ikf6Pvk-NhemGwLkY7p/exec',
             CITY_TELEGRAM_CHATS: {
                 'Новосибирск': '-1003875039787'
             },
@@ -1647,14 +1647,32 @@
                     body: payload.toString()
                 });
 
-                // Попробуем распарсить JSON-ответ от сервера
+                const text = await resp.text();
+                let json = null;
                 try {
-                    const json = await resp.json();
-                    const success = resp.ok && (!json || json.ok !== false);
-                    return { success, response: json, status: resp.status };
+                    json = JSON.parse(text);
                 } catch (err) {
-                    return { success: resp.ok, status: resp.status };
+                    const hint = text && text.toLowerCase().includes('<!doctype')
+                        ? 'Сервер вернул HTML. Проверьте доступ к Web App (должно быть "Кто угодно").'
+                        : 'Сервер вернул не-JSON ответ.';
+                    return {
+                        success: false,
+                        status: resp.status,
+                        error: `${hint} HTTP ${resp.status}`,
+                        raw: text ? text.slice(0, 300) : ''
+                    };
                 }
+
+                if (!resp.ok || json.ok === false) {
+                    return {
+                        success: false,
+                        status: resp.status,
+                        response: json,
+                        error: json.error || json.note || `HTTP ${resp.status}`
+                    };
+                }
+
+                return { success: true, response: json, status: resp.status };
             } catch (error) {
                 return { success: false, error: error.message };
             }
@@ -1987,15 +2005,18 @@
                 // Отправляем заявку на Google Apps Script
                 // Сервер автоматически отправит сообщение в Telegram и сохранит в таблицу
                 const sheetsResult = await saveToGoogleSheets();
+                if (!sheetsResult.success) {
+                    const backendError = (sheetsResult.response && (sheetsResult.response.error || sheetsResult.response.note))
+                        || sheetsResult.error
+                        || 'Неизвестная ошибка бэкенда';
+                    showStatus(`❌ Заявка №${orderId} НЕ сохранена: ${backendError}`, 'error');
+                    return;
+                }
+
                 const serverResponse = sheetsResult.response || {};
                 updateTelegramLinkButton(serverResponse);
                 telegramMessageId = serverResponse.messageId || telegramMessageId;
-                
-                if (sheetsResult.success) {
-                    showStatus(`✅ Заявка №${orderId} создана! Отправлена в Telegram и Google Таблицы`, 'success');
-                } else {
-                    showStatus(`✅ Заявка №${orderId} создана! Проверьте Google Таблицы.`, 'info');
-                }
+                showStatus(`✅ Заявка №${orderId} создана! Отправлена в Telegram и Google Таблицы`, 'success');
                 
                 step3.classList.add('active');
                 step2.classList.remove('active');
