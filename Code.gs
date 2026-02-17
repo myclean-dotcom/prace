@@ -260,9 +260,20 @@ function handleTelegramUpdate(body) {
     const data = cb.data || '';
     const callbackId = cb.id;
     const from = cb.from || {};
+
+    try { Logger.log('callback_query: ' + JSON.stringify({ id: callbackId, data: data, fromId: from.id })); } catch (e) {}
+    if (isDuplicateCallback(callbackId)) {
+      answerCallback(token, callbackId, 'ℹ️ Нажатие уже обработано.');
+      return jsonResponse({ ok: true, duplicateCallback: true }, 200);
+    }
     
     if (data.indexOf('take_') === 0) {
-      const orderId = data.split('take_')[1];
+      const orderId = String(data).replace(/^take_/, '').trim();
+      if (!orderId) {
+        answerCallback(token, callbackId, '❌ Некорректный ID заявки.');
+        return jsonResponse({ ok: false, error: 'Invalid order id in callback' }, 200);
+      }
+
       const lock = LockService.getScriptLock();
       try {
         lock.waitLock(8000);
@@ -272,92 +283,98 @@ function handleTelegramUpdate(body) {
       }
 
       try {
-        const rowNum = findOrderRowById(orderId);
-        if (!rowNum) {
-          answerCallback(token, callbackId, '❌ Заявка не найдена');
-          return jsonResponse({ ok: false, error: 'Order not found' }, 200);
-        }
-
-        const order = getOrderByRow(rowNum);
-        const masterId = String(from.id || '').trim();
-        let masterName = `${from.first_name || ''} ${from.last_name || ''}`.trim();
-        if (!masterName && from.username) masterName = '@' + from.username;
-        if (!masterName) masterName = 'Мастер';
-        if (!masterId) {
-          answerCallback(token, callbackId, '❌ Не удалось определить ваш Telegram ID.');
-          return jsonResponse({ ok: false, error: 'Master id missing' }, 200);
-        }
-
-        // Блокируем повторное взятие заявки другим мастером.
-        const currentStatus = String(order['Статус'] || '').toLowerCase();
-        const existingMasterId = String(order['Master ID'] || '').trim();
-        const existingMasterName = String(order['Master Name'] || '').trim();
-        if (currentStatus.indexOf('взята') !== -1 && existingMasterId) {
-          if (existingMasterId === masterId) {
-            answerCallback(token, callbackId, 'ℹ️ Вы уже приняли эту заявку.');
-            return jsonResponse({ ok: true, alreadyTakenBySameMaster: true }, 200);
-          }
-
-          const takenBy = existingMasterName || 'другим мастером';
-          answerCallback(token, callbackId, `❌ Заявка уже принята: ${takenBy}`);
-          return jsonResponse({ ok: true, alreadyTaken: true }, 200);
-        }
-
-        const takenAt = new Date().toLocaleString('ru-RU');
-        updateOrderTaken(orderId, masterId, masterName, takenAt);
-
-        // Получаем обновленную строку для отправки полной информации мастеру.
-        const updatedOrder = getOrderByRow(rowNum);
-        const fullText = generateFullText(updatedOrder, updatedOrder);
-
-        const dmResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'post',
-          payload: JSON.stringify({
-            chat_id: masterId,
-            text: fullText,
-            parse_mode: 'HTML'
-          })
-        });
-
-        // Убираем кнопку из группового сообщения и пишем, кто принял заявку.
         try {
-          const chatId = updatedOrder['Telegram Chat ID'] || (cb.message && cb.message.chat ? cb.message.chat.id : '');
-          const messageId = updatedOrder['Telegram Message ID'] || (cb.message ? cb.message.message_id : '');
-
-          if (chatId && messageId) {
-            urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
-              method: 'post',
-              payload: JSON.stringify({
-                chat_id: chatId,
-                message_id: messageId,
-                reply_markup: { inline_keyboard: [] }
-              })
-            });
+          const rowNum = findOrderRowById(orderId);
+          if (!rowNum) {
+            answerCallback(token, callbackId, '❌ Заявка не найдена');
+            return jsonResponse({ ok: false, error: 'Order not found' }, 200);
           }
 
-          if (chatId) {
-            const safeMasterName = escapeTelegramHtml(masterName);
-            urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-              method: 'post',
-              payload: JSON.stringify({
-                chat_id: chatId,
-                text: `✅ Заявка <code>${orderId}</code> принята мастером <b>${safeMasterName}</b>`,
-                parse_mode: 'HTML',
-                disable_web_page_preview: true
-              })
-            });
+          const order = getOrderByRow(rowNum);
+          const masterId = String(from.id || '').trim();
+          let masterName = `${from.first_name || ''} ${from.last_name || ''}`.trim();
+          if (!masterName && from.username) masterName = '@' + from.username;
+          if (!masterName) masterName = 'Мастер';
+          if (!masterId) {
+            answerCallback(token, callbackId, '❌ Не удалось определить ваш Telegram ID.');
+            return jsonResponse({ ok: false, error: 'Master id missing' }, 200);
           }
-        } catch (e) {
-          Logger.log('Failed to update group message: ' + e);
-        }
 
-        if (dmResp && dmResp.ok) {
-          answerCallback(token, callbackId, '✅ Заявка принята! Полная информация отправлена в личные сообщения.');
-        } else {
-          answerCallback(token, callbackId, '⚠️ Заявка принята, но не удалось отправить личное сообщение. Нажмите /start боту в личке.');
-        }
+          // Блокируем повторное взятие заявки другим мастером.
+          const currentStatus = String(order['Статус'] || '').toLowerCase();
+          const existingMasterId = String(order['Master ID'] || '').trim();
+          const existingMasterName = String(order['Master Name'] || '').trim();
+          if (currentStatus.indexOf('взята') !== -1 && existingMasterId) {
+            if (existingMasterId === masterId) {
+              answerCallback(token, callbackId, 'ℹ️ Вы уже приняли эту заявку.');
+              return jsonResponse({ ok: true, alreadyTakenBySameMaster: true }, 200);
+            }
 
-        return jsonResponse({ ok: true, masterAccepted: true }, 200);
+            const takenBy = existingMasterName || 'другим мастером';
+            answerCallback(token, callbackId, `❌ Заявка уже принята: ${takenBy}`);
+            return jsonResponse({ ok: true, alreadyTaken: true }, 200);
+          }
+
+          const takenAt = new Date().toLocaleString('ru-RU');
+          updateOrderTaken(orderId, masterId, masterName, takenAt);
+
+          // Получаем обновленную строку для отправки полной информации мастеру.
+          const updatedOrder = getOrderByRow(rowNum);
+          const fullText = generateFullText(updatedOrder, updatedOrder);
+
+          const dmResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'post',
+            payload: JSON.stringify({
+              chat_id: masterId,
+              text: fullText,
+              parse_mode: 'HTML'
+            })
+          });
+
+          // Убираем кнопку из группового сообщения и пишем, кто принял заявку.
+          try {
+            const chatId = updatedOrder['Telegram Chat ID'] || (cb.message && cb.message.chat ? cb.message.chat.id : '');
+            const messageId = updatedOrder['Telegram Message ID'] || (cb.message ? cb.message.message_id : '');
+
+            if (chatId && messageId) {
+              urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+                method: 'post',
+                payload: JSON.stringify({
+                  chat_id: chatId,
+                  message_id: messageId,
+                  reply_markup: { inline_keyboard: [] }
+                })
+              });
+            }
+
+            if (chatId) {
+              const safeMasterName = escapeTelegramHtml(masterName);
+              urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+                method: 'post',
+                payload: JSON.stringify({
+                  chat_id: chatId,
+                  text: `✅ Заявка <code>${orderId}</code> принята мастером <b>${safeMasterName}</b>`,
+                  parse_mode: 'HTML',
+                  disable_web_page_preview: true
+                })
+              });
+            }
+          } catch (e) {
+            Logger.log('Failed to update group message: ' + e);
+          }
+
+          if (dmResp && dmResp.ok) {
+            answerCallback(token, callbackId, '✅ Заявка принята! Полная информация отправлена в личные сообщения.');
+          } else {
+            answerCallback(token, callbackId, '⚠️ Заявка принята, но не удалось отправить личное сообщение. Нажмите /start боту в личке.');
+          }
+
+          return jsonResponse({ ok: true, masterAccepted: true }, 200);
+        } catch (err) {
+          Logger.log('Error while processing callback take_: ' + err.message + '\n' + (err.stack || ''));
+          answerCallback(token, callbackId, '❌ Ошибка обработки кнопки. Нажмите еще раз через 2-3 секунды.');
+          return jsonResponse({ ok: false, error: 'callback processing failed', details: err.message }, 200);
+        }
       } finally {
         try { lock.releaseLock(); } catch (e) {}
       }
@@ -1015,6 +1032,19 @@ function answerCallback(token, callbackId, text) {
       show_alert: false
     }) 
   });
+}
+
+function isDuplicateCallback(callbackId) {
+  const id = String(callbackId || '').trim();
+  if (!id) return false;
+
+  const cache = CacheService.getScriptCache();
+  const key = 'cbq_' + id;
+  const exists = cache.get(key);
+  if (exists) return true;
+
+  cache.put(key, '1', 120);
+  return false;
 }
 
 /* ---------- Утилиты ---------- */
