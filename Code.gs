@@ -180,7 +180,7 @@ function createOrUpdateOrder(payload) {
   const order = payload;
   const orderId = order.orderId || ('CLN-' + Date.now().toString().slice(-8));
   order.orderId = orderId;
-  order._ts = new Date().toISOString();
+  order._ts = formatCreatedAt(new Date());
 
   // Обновление существующей заявки
   if (payload.action === 'update' && payload.orderId) {
@@ -239,6 +239,14 @@ function createOrUpdateOrder(payload) {
   setTelegramIdsForOrder(order.orderId, chat, resp.result.message_id);
   
   return jsonResponse({ ok: true, orderId, chat, messageId: resp.result.message_id });
+}
+
+function formatCreatedAt(date) {
+  return Utilities.formatDate(
+    date || new Date(),
+    Session.getScriptTimeZone(),
+    'dd.MM.yyyy HH:mm:ss'
+  );
 }
 
 /* ---------- Обработка обновлений из Telegram ---------- */
@@ -957,13 +965,13 @@ function generateFullText(orderRow, orderData) {
   text += `Сумма заказа: ${orderSum} руб\n`;
   text += `Ваша оплата: ${masterPay} руб\n\n`;
 
-  text += `✅ <b>ИНСТРУКЦИЯ К ВЫПОЛНЕНИЮ</b>\n`;
+  text += `✅ <b>ЧТО НУЖНО СДЕЛАТЬ</b>\n`;
   text += `1️⃣ Напишите клиенту готовое сообщение из блока ниже.\n`;
-  text += `2️⃣ Подготовьтесь к заявке: заранее возьмите нужное оборудование и химию, спланируйте маршрут и приезжайте без опозданий.\n`;
-  text += `3️⃣ По прибытии на объект отправьте фото химии и оборудования.\n`;
-  text += `4️⃣ После завершения работ отправьте фото результата.\n`;
+  text += `2️⃣ Подготовьтесь к заявке ответственно: заранее возьмите нужное оборудование и химию, спланируйте маршрут и приезжайте без опозданий.\n`;
+  text += `3️⃣ Когда прибудете на объект, отправьте фото химии и оборудования.\n`;
+  text += `4️⃣ После завершения работы отправьте фотографии результата.\n`;
   text += `5️⃣ Отправьте фото подписанного акта выполненных работ.\n`;
-  text += `6️⃣ Подтвердите оплату от клиента.\n\n`;
+  text += `6️⃣ Подтвердите получение оплаты от клиента.\n\n`;
 
   text += `💬 <b>ГОТОВОЕ СООБЩЕНИЕ КЛИЕНТУ</b>\n`;
   text += `<code>${escapeTelegramHtml(clientMessage)}</code>`;
@@ -1153,7 +1161,7 @@ function __testCreateOrder() {
     customerCity: 'Новосибирск',
     customerAddress: 'Тестовый адрес',
     customerFlat: '',
-    orderDate: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd.MM'),
+    orderDate: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd.MM.yyyy'),
     orderTime: '12:00',
     orderTotal: '1000',
     masterPay: '600',
@@ -1167,6 +1175,51 @@ function __testCreateOrder() {
   const resp = createOrUpdateOrder(payload);
   Logger.log(resp.getContent());
   return resp;
+}
+
+// Разовая нормализация колонки "Дата создания" для старых строк (ISO -> dd.MM.yyyy HH:mm:ss)
+function __normalizeCreatedAtColumn() {
+  const sheet = getSheet();
+  const headerMap = getHeaderMap(sheet);
+  const col = headerMap['Дата создания'];
+  const lastRow = sheet.getLastRow();
+  if (!col || lastRow < 2) {
+    Logger.log('Нет данных для нормализации');
+    return { ok: true, updated: 0 };
+  }
+
+  const values = sheet.getRange(2, col, lastRow - 1, 1).getValues();
+  let updated = 0;
+
+  for (let i = 0; i < values.length; i++) {
+    const raw = values[i][0];
+    let parsed = null;
+
+    if (Object.prototype.toString.call(raw) === '[object Date]' && !isNaN(raw.getTime())) {
+      parsed = raw;
+    } else {
+      const text = String(raw || '').trim();
+      if (!text) continue;
+
+      // Чаще всего встречается ISO: 2026-02-17T10:01:13.062Z
+      const isoLike = text.indexOf('T') !== -1 && text.indexOf(':') !== -1;
+      if (!isoLike) continue;
+
+      const dt = new Date(text);
+      if (!isNaN(dt.getTime())) parsed = dt;
+    }
+
+    if (!parsed) continue;
+    values[i][0] = formatCreatedAt(parsed);
+    updated++;
+  }
+
+  if (updated > 0) {
+    sheet.getRange(2, col, values.length, 1).setValues(values);
+  }
+
+  Logger.log('Нормализация завершена. Обновлено строк: ' + updated);
+  return { ok: true, updated: updated };
 }
 
 // Установка webhook Telegram на URL веб-приложения
@@ -1216,4 +1269,34 @@ function __deleteTelegramWebhook() {
   });
   Logger.log(JSON.stringify(resp));
   return resp;
+}
+
+// Полный сброс webhook + очистка накопленных апдейтов (когда приходят дубли)
+function __resetTelegramWebhook(webAppUrl) {
+  const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
+  if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
+
+  let url = String(webAppUrl || '').trim();
+  if (!url) {
+    try {
+      url = ScriptApp.getService().getUrl();
+    } catch (e) {
+      url = '';
+    }
+  }
+  if (!url) throw new Error('Передайте webAppUrl или сначала задеплойте Web App');
+
+  const delResp = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
+    method: 'post',
+    payload: JSON.stringify({ drop_pending_updates: true })
+  });
+
+  const setResp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
+    method: 'post',
+    payload: JSON.stringify({ url: url })
+  });
+
+  Logger.log('deleteWebhook: ' + JSON.stringify(delResp));
+  Logger.log('setWebhook: ' + JSON.stringify(setResp));
+  return { deleteWebhook: delResp, setWebhook: setResp };
 }

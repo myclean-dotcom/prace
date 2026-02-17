@@ -1361,6 +1361,7 @@
         let currentOrderData = null;
         let calculatedPrice = 0;
         let telegramMessageId = null;
+        let isSubmittingOrder = false;
         let TELEGRAM_API_URL = `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}`;
 
         const managerNameInput = document.getElementById('managerName');
@@ -1565,64 +1566,54 @@
             let text = `🧹 <b>ПОЛНАЯ ИНФОРМАЦИЯ О ЗАЯВКЕ №${currentOrderData.orderId}</b>\n`;
             text += `────────────────────────────────────\n\n`;
             
-            text += `📋 <b>ОСНОВНАЯ ИНФОРМАЦИЯ:</b>\n`;
-            text += `───────────────────────\n`;
-            text += `Город: ${currentOrderData.customerCity}\n`;
-            text += `Тип уборки: ${currentOrderData.cleaningType}\n`;
-            text += `Площадь: ${currentOrderData.area} м²\n`;
-            text += `Тип помещения: ${currentOrderData.roomType}\n`;
+            const fullAddress = [currentOrderData.customerAddress, currentOrderData.customerFlat]
+                .filter(Boolean)
+                .join(', ');
+            const dateTime = [currentOrderData.orderDate, currentOrderData.orderTime]
+                .filter(Boolean)
+                .join(' в ');
+            const clientMessage =
+                `Здравствуйте! Я мастер по клинингу. ` +
+                `Приеду к вам ${dateTime || 'в согласованное время'} по адресу: ${fullAddress || 'адрес уточню дополнительно'}. ` +
+                `До встречи!`;
+
+            text += `📋 <b>ОСНОВНАЯ ИНФОРМАЦИЯ</b>\n`;
+            text += `🏙 Город: ${currentOrderData.customerCity}\n`;
+            text += `🧽 Вид уборки: ${currentOrderData.cleaningType}\n`;
+            text += `📐 Площадь: ${currentOrderData.area} м²\n`;
+            text += `🗓 Дата и время: ${dateTime || 'не указаны'}\n`;
+            text += `📍 Адрес: ${fullAddress || 'не указан'}\n\n`;
             
-            if (currentOrderData.orderDate) {
-                text += `Дата: ${currentOrderData.orderDate}\n`;
-            }
-            if (currentOrderData.orderTime) {
-                text += `Время: ${currentOrderData.orderTime}\n`;
-            }
-            text += `\n`;
-            
-            text += `👤 <b>ДАННЫЕ КЛИЕНТА:</b>\n`;
-            text += `──────────────────\n`;
+            text += `👤 <b>ДАННЫЕ КЛИЕНТА</b>\n`;
             text += `Имя: ${currentOrderData.customerName}\n`;
-            text += `Телефон: <code>${currentOrderData.customerPhone}</code>\n`;
-            text += `Адрес: ${currentOrderData.customerAddress}\n`;
-            if (currentOrderData.customerFlat) {
-                text += `Квартира/офис: ${currentOrderData.customerFlat}\n`;
+            text += `Телефон: <code>${currentOrderData.customerPhone}</code>\n\n`;
+
+            text += `🧰 <b>ЧТО ВЗЯТЬ С СОБОЙ</b>\n`;
+            text += `Оборудование: ${currentOrderData.equipment || '—'}\n`;
+            text += `Химия: ${currentOrderData.chemistry || '—'}\n\n`;
+
+            if (currentOrderData.worksDescription) {
+                text += `📝 <b>ПОЖЕЛАНИЯ / ОПИСАНИЕ РАБОТ</b>\n`;
+                text += `${currentOrderData.worksDescription}\n\n`;
             }
-            text += `\n`;
-            
-            text += `💰 <b>ФИНАНСЫ:</b>\n`;
-            text += `──────────\n`;
+
+            text += `💰 <b>ФИНАНСЫ</b>\n`;
             text += `Сумма заказа: ${currentOrderData.orderTotal} руб\n`;
             if (currentOrderData.masterPay && currentOrderData.masterPay !== '0') {
                 text += `Ваша оплата: ${currentOrderData.masterPay} руб\n`;
             }
             text += `\n`;
-            
-            if (currentOrderData.equipment && currentOrderData.equipment !== '—') {
-                text += `🛠 <b>ОБОРУДОВАНИЕ:</b>\n`;
-                text += `──────────────\n${currentOrderData.equipment}\n\n`;
-            }
-            
-            if (currentOrderData.chemistry && currentOrderData.chemistry !== '—') {
-                text += `🧴 <b>ХИМИЯ:</b>\n`;
-                text += `──────────\n${currentOrderData.chemistry}\n\n`;
-            }
-            
-            if (currentOrderData.worksDescription) {
-                text += `📝 <b>ПОЖЕЛАНИЯ/ОПИСАНИЕ:</b>\n`;
-                text += `────────────────────\n${currentOrderData.worksDescription}\n\n`;
-            }
-            
-            text += `───────────────────────────────────\n`;
-            text += `✅ <b>ИНСТРУКЦИЯ:</b>\n`;
-            text += `1. Звоните клиенту и уточняйте детали\n`;
-            text += `2. Отправьте фото при прибытии на заявку\n`;
-            text += `3. Отправьте фото выполненных работ\n`;
-            text += `4. Получите подпись акта и договора\n`;
-            text += `5. Проведите расчет с клиентом\n\n`;
-            text += `⏰ Вы получите напоминания:\n`;
-            text += `  • За 24 часа до заявки\n`;
-            text += `  • За 2 часа до заявки`;
+
+            text += `✅ <b>ЧТО НУЖНО СДЕЛАТЬ</b>\n`;
+            text += `1. Напишите клиенту готовое сообщение из блока ниже.\n`;
+            text += `2. Подготовьтесь к заявке ответственно: заранее возьмите нужное оборудование и химию, спланируйте маршрут и приезжайте без опозданий.\n`;
+            text += `3. Когда прибудете на объект, отправьте фото химии и оборудования.\n`;
+            text += `4. После завершения работы отправьте фотографии результата.\n`;
+            text += `5. Отправьте фото подписанного акта выполненных работ.\n`;
+            text += `6. Подтвердите получение оплаты от клиента.\n\n`;
+
+            text += `💬 <b>ГОТОВОЕ СООБЩЕНИЕ КЛИЕНТУ</b>\n`;
+            text += `<code>${clientMessage}</code>`;
             
             return text;
         }
@@ -1894,6 +1885,11 @@
         }
 
         async function createOrder() {
+            if (isSubmittingOrder) {
+                showStatus('⏳ Заявка уже отправляется. Подождите несколько секунд.', 'error');
+                return;
+            }
+
             const manager = managerNameInput.value.trim();
             const city = customerCity.value.trim();
             const clientFirstName = normalizeCustomerName(customerName.value);
@@ -2009,6 +2005,11 @@
             
             generateOrderText();
             
+            isSubmittingOrder = true;
+            createOrderBtn.disabled = true;
+            createOrderBtn.style.opacity = '0.7';
+            createOrderBtn.style.cursor = 'not-allowed';
+
             loadingEl.style.display = 'block';
             
             try {
@@ -2041,6 +2042,10 @@
                 actionButtons.style.display = 'flex';
             } finally {
                 loadingEl.style.display = 'none';
+                isSubmittingOrder = false;
+                createOrderBtn.disabled = false;
+                createOrderBtn.style.opacity = '';
+                createOrderBtn.style.cursor = '';
             }
         }
 
