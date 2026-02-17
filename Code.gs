@@ -4,7 +4,7 @@
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
 const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
-const BUILD_VERSION = '2026-02-17-stable-take-flow-v2';
+const BUILD_VERSION = '2026-02-17-stable-take-flow-v3';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
@@ -204,6 +204,7 @@ function createOrUpdateOrder(payload) {
   
   if (!token) return jsonResponse({ ok: true, orderId, note: 'saved, token not set' });
   if (!chat) return jsonResponse({ ok: true, orderId, note: 'saved, chat id not set' });
+  ensureWebhookPinnedToCurrentDeployment(token);
 
   // Преобразуем форматChat ID если нужно
   if (chat.startsWith('@')) {
@@ -1087,7 +1088,8 @@ function generateFullText(orderRow, orderData) {
   text += `6️⃣ Подтвердите оплату от клиента.\n\n`;
 
   text += `💬 <b>ГОТОВОЕ СООБЩЕНИЕ КЛИЕНТУ</b>\n`;
-  text += `<code>${escapeTelegramHtml(clientMessage)}</code>`;
+  text += `<code>${escapeTelegramHtml(clientMessage)}</code>\n\n`;
+  text += `🔖 Версия: <code>${escapeTelegramHtml(BUILD_VERSION)}</code>`;
 
   return text;
 }
@@ -1115,6 +1117,56 @@ function buildClientReadyMessage(orderRow) {
   }
   msg += ' До встречи!';
   return msg;
+}
+
+function ensureWebhookPinnedToCurrentDeployment(token) {
+  try {
+    const botToken = String(token || '').trim();
+    if (!botToken) return;
+
+    const throttleKey = 'LAST_WEBHOOK_AUTO_SYNC_AT';
+    const now = Date.now();
+    const last = Number(PROP.getProperty(throttleKey) || 0);
+    // Не дергаем Telegram API слишком часто.
+    if (last && now - last < 2 * 60 * 1000) return;
+
+    const expectedUrl = resolveWebhookExecUrl('');
+    if (!expectedUrl) return;
+
+    let needSet = false;
+    const info = urlFetchJson(`https://api.telegram.org/bot${botToken}/getWebhookInfo`, {
+      method: 'get'
+    });
+
+    if (!info || info.ok !== true || !info.result) {
+      needSet = true;
+    } else {
+      const currentUrl = normalizeWebhookUrlToExec(info.result.url || '');
+      const allowed = Array.isArray(info.result.allowed_updates) ? info.result.allowed_updates : [];
+
+      if (!currentUrl || currentUrl !== expectedUrl) {
+        needSet = true;
+      }
+      if (allowed.length && allowed.indexOf('callback_query') === -1) {
+        needSet = true;
+      }
+    }
+
+    if (needSet) {
+      const setResp = urlFetchJson(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+        method: 'post',
+        payload: JSON.stringify({
+          url: expectedUrl,
+          allowed_updates: getTelegramAllowedUpdates()
+        })
+      });
+      Logger.log('auto setWebhook to current deployment: ' + JSON.stringify(setResp));
+    }
+
+    PROP.setProperty(throttleKey, String(now));
+  } catch (e) {
+    Logger.log('ensureWebhookPinnedToCurrentDeployment failed: ' + e.message);
+  }
 }
 
 /* ---------- Вспомогательные функции Telegram ---------- */
