@@ -260,6 +260,8 @@ function handleTelegramUpdate(body) {
     const data = cb.data || '';
     const callbackId = cb.id;
     const from = cb.from || {};
+    const cbChatId = cb.message && cb.message.chat ? cb.message.chat.id : '';
+    const cbMessageId = cb.message ? cb.message.message_id : '';
 
     try { Logger.log('callback_query: ' + JSON.stringify({ id: callbackId, data: data, fromId: from.id })); } catch (e) {}
     let duplicateCallback = false;
@@ -291,7 +293,10 @@ function handleTelegramUpdate(body) {
 
       try {
         try {
-          const rowNum = findOrderRowById(orderId);
+          let rowNum = findOrderRowById(orderId);
+          if (!rowNum) {
+            rowNum = findOrderRowByTelegramMessage(cbChatId, cbMessageId);
+          }
           if (!rowNum) {
             answerCallback(token, callbackId, '❌ Заявка не найдена');
             return jsonResponse({ ok: false, error: 'Order not found' }, 200);
@@ -340,22 +345,36 @@ function handleTelegramUpdate(body) {
 
           // Убираем кнопку из группового сообщения и пишем, кто принял заявку.
           try {
-            const chatId = updatedOrder['Telegram Chat ID'] || (cb.message && cb.message.chat ? cb.message.chat.id : '');
-            const messageId = updatedOrder['Telegram Message ID'] || (cb.message ? cb.message.message_id : '');
+            const chatId = updatedOrder['Telegram Chat ID'] || cbChatId;
+            const messageId = updatedOrder['Telegram Message ID'] || cbMessageId;
+            const safeMasterName = escapeTelegramHtml(masterName);
+            const safeTakenAt = escapeTelegramHtml(takenAt);
 
-            if (chatId && messageId) {
-              urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+            if (chatId && messageId && cb.message && cb.message.text) {
+              const updatedText = `${cb.message.text}\n\n✅ Взял мастер: <b>${safeMasterName}</b>\n🕒 ${safeTakenAt}`;
+              const editResp = urlFetchJson(`https://api.telegram.org/bot${token}/editMessageText`, {
                 method: 'post',
                 payload: JSON.stringify({
                   chat_id: chatId,
-                  message_id: messageId,
-                  reply_markup: { inline_keyboard: [] }
+                  message_id: Number(messageId),
+                  text: updatedText,
+                  parse_mode: 'HTML',
+                  reply_markup: { inline_keyboard: [] },
+                  disable_web_page_preview: true
                 })
               });
-            }
 
-            if (chatId) {
-              const safeMasterName = escapeTelegramHtml(masterName);
+              if (!editResp || editResp.ok === false) {
+                urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+                  method: 'post',
+                  payload: JSON.stringify({
+                    chat_id: chatId,
+                    message_id: Number(messageId),
+                    reply_markup: { inline_keyboard: [] }
+                  })
+                });
+              }
+            } else if (chatId) {
               urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
                 method: 'post',
                 payload: JSON.stringify({
@@ -584,6 +603,31 @@ function findOrderRowById(orderId) {
     }
   }
   
+  return null;
+}
+
+function findOrderRowByTelegramMessage(chatId, messageId) {
+  const sheet = getSheet();
+  const headerMap = getHeaderMap(sheet);
+  const chatCol = headerMap['Telegram Chat ID'];
+  const msgCol = headerMap['Telegram Message ID'];
+  const lastRow = sheet.getLastRow();
+  if (!chatCol || !msgCol || lastRow < 2) return null;
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  const targetChat = String(chatId || '').trim();
+  const targetMsg = String(messageId || '').trim();
+  if (!targetChat || !targetMsg) return null;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowChat = String(row[chatCol - 1] || '').trim();
+    const rowMsg = String(row[msgCol - 1] || '').trim();
+    if (rowChat === targetChat && rowMsg === targetMsg) {
+      return i + 2;
+    }
+  }
+
   return null;
 }
 
