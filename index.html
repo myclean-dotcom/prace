@@ -1413,6 +1413,7 @@
         const resultArea = document.getElementById('resultArea');
         const actionButtons = document.getElementById('actionButtons');
         const telegramLinkBtn = document.getElementById('telegramLinkBtn');
+        let statusHideTimer = null;
         
         const orderSection = document.getElementById('orderSection');
         const nextStepNotice = document.getElementById('nextStepNotice');
@@ -1878,10 +1879,18 @@
             statusEl.className = 'status ' + type;
             statusEl.innerHTML = message;
             statusEl.style.display = 'block';
-            
-            setTimeout(() => {
-                statusEl.style.display = 'none';
-            }, 5000);
+
+            if (statusHideTimer) {
+                clearTimeout(statusHideTimer);
+                statusHideTimer = null;
+            }
+
+            if (type !== 'error') {
+                statusHideTimer = setTimeout(() => {
+                    statusEl.style.display = 'none';
+                    statusHideTimer = null;
+                }, 5000);
+            }
         }
 
         async function createOrder() {
