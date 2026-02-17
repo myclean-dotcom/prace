@@ -4,7 +4,7 @@
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
 const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
-const BUILD_VERSION = '2026-02-17-stable-take-flow-v4';
+const BUILD_VERSION = '2026-02-17-stable-take-flow-v5';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
@@ -539,7 +539,7 @@ function getCellByHeader(rowValues, headerMap, headerName) {
 }
 
 function buildOrderRowData(order, status) {
-  const createdAt = normalizeCreatedAtValue(order._ts);
+  const createdAt = normalizeCreatedAtValue(order._ts || order.createdAt);
   return {
     'Номер заявки': order.orderId || '',
     'Дата создания': createdAt,
@@ -675,7 +675,7 @@ function updateOrderRow(rowNum, order) {
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h || '').trim());
   const currentRow = sheet.getRange(rowNum, 1, 1, headers.length).getValues()[0];
   const statusCol = headers.indexOf('Статус');
-  const createdAt = normalizeCreatedAtValue(order._ts);
+  const createdAt = normalizeCreatedAtValue(order._ts || order.createdAt);
 
   const map = {
     'Номер заявки': order.orderId || '',
@@ -1155,6 +1155,7 @@ function ensureWebhookPinnedToCurrentDeployment(token) {
     if (!expectedUrl) return;
 
     let needSet = false;
+    let needDropPending = false;
     const info = urlFetchJson(`https://api.telegram.org/bot${botToken}/getWebhookInfo`, {
       method: 'get'
     });
@@ -1167,13 +1168,28 @@ function ensureWebhookPinnedToCurrentDeployment(token) {
 
       if (!currentUrl || currentUrl !== expectedUrl) {
         needSet = true;
+        needDropPending = true;
       }
       if (allowed.length && allowed.indexOf('callback_query') === -1) {
         needSet = true;
+        needDropPending = true;
+      }
+      if (Number(info.result.pending_update_count || 0) > 3) {
+        // Если накопились апдейты, сбрасываем очередь, чтобы не было лавины дублей.
+        needSet = true;
+        needDropPending = true;
       }
     }
 
     if (needSet) {
+      if (needDropPending) {
+        const delResp = urlFetchJson(`https://api.telegram.org/bot${botToken}/deleteWebhook`, {
+          method: 'post',
+          payload: JSON.stringify({ drop_pending_updates: true })
+        });
+        Logger.log('auto deleteWebhook(drop_pending=true): ' + JSON.stringify(delResp));
+      }
+
       const setResp = urlFetchJson(`https://api.telegram.org/bot${botToken}/setWebhook`, {
         method: 'post',
         payload: JSON.stringify({
@@ -1668,4 +1684,39 @@ function __getBuildInfo() {
   };
   Logger.log(JSON.stringify(info));
   return info;
+}
+
+function __hardResetBotRouting() {
+  const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
+  if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан');
+
+  const url = resolveWebhookExecUrl('');
+  if (!url) throw new Error('Не удалось определить URL Web App');
+
+  const delResp = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
+    method: 'post',
+    payload: JSON.stringify({ drop_pending_updates: true })
+  });
+
+  const setResp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
+    method: 'post',
+    payload: JSON.stringify({
+      url: url,
+      allowed_updates: getTelegramAllowedUpdates()
+    })
+  });
+
+  const infoResp = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, {
+    method: 'get'
+  });
+
+  const out = {
+    buildVersion: BUILD_VERSION,
+    targetUrl: url,
+    deleteWebhook: delResp,
+    setWebhook: setResp,
+    webhookInfo: infoResp
+  };
+  Logger.log(JSON.stringify(out));
+  return out;
 }
