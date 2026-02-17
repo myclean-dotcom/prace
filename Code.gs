@@ -5,7 +5,7 @@ const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
 const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
-const BUILD_VERSION = '2026-02-17-stable-take-flow-v7';
+const BUILD_VERSION = '2026-02-17-stable-take-flow-v8';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
@@ -85,6 +85,10 @@ function doPost(e) {
         buildVersion: BUILD_VERSION,
         time: formatCreatedAt(new Date())
       }, 200);
+    }
+
+    if (body.action === 'check_bot') {
+      return checkTelegramBotStatus();
     }
 
     if (body.action === 'create' || body.action === 'update' || body.orderId) {
@@ -253,6 +257,40 @@ function createOrUpdateOrder(payload) {
   setTelegramIdsForOrder(order.orderId, chat, resp.result.message_id);
   
   return jsonResponse({ ok: true, orderId, chat, messageId: resp.result.message_id, buildVersion: BUILD_VERSION });
+}
+
+function checkTelegramBotStatus() {
+  const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
+  if (!token) {
+    return jsonResponse({
+      ok: false,
+      error: 'TELEGRAM_BOT_TOKEN не задан в Script Properties',
+      buildVersion: BUILD_VERSION
+    }, 200);
+  }
+
+  const resp = urlFetchJson(`https://api.telegram.org/bot${token}/getMe`, {
+    method: 'get'
+  });
+
+  if (!resp || resp.ok !== true || !resp.result) {
+    return jsonResponse({
+      ok: false,
+      error: 'Ошибка Telegram API',
+      telegram: resp || null,
+      buildVersion: BUILD_VERSION
+    }, 200);
+  }
+
+  return jsonResponse({
+    ok: true,
+    bot: {
+      id: resp.result.id,
+      username: resp.result.username,
+      first_name: resp.result.first_name
+    },
+    buildVersion: BUILD_VERSION
+  }, 200);
 }
 
 function formatCreatedAt(date) {

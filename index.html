@@ -1329,7 +1329,7 @@
 
     <script>
         const CONFIG = {
-            TELEGRAM_BOT_TOKEN: '8471091759:AAGiszC401WRMWcTXXPi9PizsqxX-oAUurI',
+            TELEGRAM_BOT_TOKEN: '',
             TELEGRAM_CHAT_ID: '',
             GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec',
             CITY_TELEGRAM_CHATS: {
@@ -1362,7 +1362,6 @@
         let calculatedPrice = 0;
         let telegramMessageId = null;
         let isSubmittingOrder = false;
-        let TELEGRAM_API_URL = `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}`;
 
         const managerNameInput = document.getElementById('managerName');
         const cleaningTypeOptions = document.querySelectorAll('#cleaningType .radio-option');
@@ -1505,16 +1504,25 @@
 
         async function checkTelegramBot() {
             try {
-                const response = await fetch(`${TELEGRAM_API_URL}/getMe`);
+                const payload = new URLSearchParams();
+                payload.append('action', 'check_bot');
+
+                const response = await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                    body: payload.toString()
+                });
                 const data = await response.json();
-                
-                if (data.ok) {
-                    showStatus('✅ Telegram бот подключен. Чат выбирается автоматически по городу.', 'success');
+
+                if (response.ok && data && data.ok) {
+                    const name = data.bot && data.bot.username ? ` @${data.bot.username}` : '';
+                    showStatus(`✅ Telegram бот подключен${name}. Чат выбирается автоматически по городу.`, 'success');
                 } else {
-                    showStatus('❌ Ошибка Telegram бота. Проверьте токен.', 'error');
+                    const err = (data && data.error) ? data.error : 'Проверьте Script Properties и деплой Web App.';
+                    showStatus(`❌ Ошибка Telegram бота: ${err}`, 'error');
                 }
             } catch (error) {
-                showStatus('⚠️ Не удалось проверить Telegram бота. Проверьте интернет.', 'info');
+                showStatus(`❌ Не удалось проверить Telegram бота: ${error.message}`, 'error');
             }
         }
 
