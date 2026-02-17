@@ -3,6 +3,7 @@
 
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
+const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
@@ -1317,16 +1318,8 @@ function __setTelegramWebhook(webAppUrl) {
   const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
 
-  let url = (webAppUrl || '').toString().trim();
-  if (!url) {
-    try {
-      url = ScriptApp.getService().getUrl();
-    } catch (e) {
-      url = '';
-    }
-  }
+  let url = resolveWebhookExecUrl(webAppUrl);
   if (!url) throw new Error('Передайте webAppUrl или сначала задеплойте Web App');
-  url = normalizeWebhookUrlToExec(url);
 
   const resp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
     method: 'post',
@@ -1376,16 +1369,8 @@ function __resetTelegramWebhook(webAppUrl) {
   const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
 
-  let url = String(webAppUrl || '').trim();
-  if (!url) {
-    try {
-      url = ScriptApp.getService().getUrl();
-    } catch (e) {
-      url = '';
-    }
-  }
+  let url = resolveWebhookExecUrl(webAppUrl);
   if (!url) throw new Error('Передайте webAppUrl или сначала задеплойте Web App');
-  url = normalizeWebhookUrlToExec(url);
 
   const delResp = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
     method: 'post',
@@ -1415,16 +1400,28 @@ function getTelegramAllowedUpdates() {
   return ['message', 'edited_message', 'callback_query'];
 }
 
-// Быстрая настройка webhook строго на prod URL (/exec)
-function __setWebhookProd() {
-  let url = '';
-  try {
-    url = ScriptApp.getService().getUrl();
-  } catch (e) {
-    url = '';
+function resolveWebhookExecUrl(preferredUrl) {
+  let url = String(preferredUrl || '').trim();
+  if (!url) {
+    url = String(PROP.getProperty('TELEGRAM_WEBHOOK_URL') || '').trim();
+  }
+  if (!url) {
+    url = DEFAULT_WEBAPP_EXEC_URL;
+  }
+  if (!url) {
+    try {
+      url = ScriptApp.getService().getUrl();
+    } catch (e) {
+      url = '';
+    }
   }
 
-  url = normalizeWebhookUrlToExec(url);
+  return normalizeWebhookUrlToExec(url);
+}
+
+// Быстрая настройка webhook строго на prod URL (/exec)
+function __setWebhookProd() {
+  const url = resolveWebhookExecUrl('');
   if (!url) {
     throw new Error('Не удалось получить URL сервиса. Сначала разверните Web App.');
   }
@@ -1437,14 +1434,7 @@ function __diagnoseTelegramButton() {
   const info = __getTelegramWebhookInfo();
   const result = (info && info.result) ? info.result : {};
 
-  let serviceUrl = '';
-  try {
-    serviceUrl = ScriptApp.getService().getUrl();
-  } catch (e) {
-    serviceUrl = '';
-  }
-
-  const expectedExecUrl = normalizeWebhookUrlToExec(serviceUrl);
+  const expectedExecUrl = resolveWebhookExecUrl('');
   const currentWebhookUrl = String(result.url || '');
   const pendingCount = Number(result.pending_update_count || 0);
   const lastError = String(result.last_error_message || '');
@@ -1454,6 +1444,8 @@ function __diagnoseTelegramButton() {
   let advice = 'Webhook выглядит корректно. Если кнопка не работает, нажмите ее и повторно запустите __diagnoseTelegramButton().';
   if (!currentWebhookUrl || currentWebhookUrl.indexOf('/exec') === -1) {
     advice = 'Webhook не на /exec. Запустите __setWebhookProd().';
+  } else if (expectedExecUrl && currentWebhookUrl !== expectedExecUrl) {
+    advice = 'Webhook указывает на другой Web App URL. Запустите __setWebhookProd() для привязки к рабочему URL.';
   } else if (currentAllowedUpdates.length && currentAllowedUpdates.indexOf('callback_query') === -1) {
     advice = 'В webhook не включен callback_query. Запустите __setWebhookProd() для переустановки.';
   } else if (lastError.indexOf('401') !== -1 || (publicCheck && publicCheck.statusCode === 401)) {
@@ -1480,16 +1472,9 @@ function __diagnoseTelegramButton() {
 }
 
 function __checkWebhookPublicAccess() {
-  let serviceUrl = '';
-  try {
-    serviceUrl = ScriptApp.getService().getUrl();
-  } catch (e) {
-    serviceUrl = '';
-  }
-
-  const url = normalizeWebhookUrlToExec(serviceUrl);
+  const url = resolveWebhookExecUrl('');
   if (!url) {
-    return { ok: false, error: 'serviceUrl not available' };
+    return { ok: false, error: 'webhook url not available' };
   }
 
   try {
