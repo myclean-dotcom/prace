@@ -262,7 +262,14 @@ function handleTelegramUpdate(body) {
     const from = cb.from || {};
 
     try { Logger.log('callback_query: ' + JSON.stringify({ id: callbackId, data: data, fromId: from.id })); } catch (e) {}
-    if (isDuplicateCallback(callbackId)) {
+    let duplicateCallback = false;
+    try {
+      duplicateCallback = isDuplicateCallback(callbackId);
+    } catch (e) {
+      Logger.log('isDuplicateCallback failed: ' + e.message);
+      duplicateCallback = false;
+    }
+    if (duplicateCallback) {
       answerCallback(token, callbackId, 'ℹ️ Нажатие уже обработано.');
       return jsonResponse({ ok: true, duplicateCallback: true }, 200);
     }
@@ -1004,15 +1011,20 @@ function urlFetchJson(url, options) {
     payload: options.payload || null,
     muteHttpExceptions: true
   };
-  
-  const resp = UrlFetchApp.fetch(url, params);
-  const text = resp.getContentText();
-  
-  try { 
-    return JSON.parse(text); 
-  } catch (e) { 
-    Logger.log('Failed to parse JSON: ' + text);
-    return { ok: false, raw: text }; 
+
+  try {
+    const resp = UrlFetchApp.fetch(url, params);
+    const text = resp.getContentText();
+
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      Logger.log('Failed to parse JSON: ' + text);
+      return { ok: false, raw: text };
+    }
+  } catch (e) {
+    Logger.log('UrlFetch failed for ' + url + ': ' + e.message);
+    return { ok: false, error: e.message };
   }
 }
 
@@ -1024,14 +1036,18 @@ function escapeTelegramHtml(value) {
 }
 
 function answerCallback(token, callbackId, text) {
-  urlFetchJson(`https://api.telegram.org/bot${token}/answerCallbackQuery`, { 
-    method: 'post', 
-    payload: JSON.stringify({ 
-      callback_query_id: callbackId, 
-      text: text,
-      show_alert: false
-    }) 
-  });
+  try {
+    urlFetchJson(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+      method: 'post',
+      payload: JSON.stringify({
+        callback_query_id: callbackId,
+        text: text,
+        show_alert: false
+      })
+    });
+  } catch (e) {
+    Logger.log('answerCallback failed: ' + e.message);
+  }
 }
 
 function isDuplicateCallback(callbackId) {
@@ -1285,6 +1301,12 @@ function __getTelegramWebhookInfo() {
   const resp = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, {
     method: 'get'
   });
+  try {
+    const currentUrl = resp && resp.result ? String(resp.result.url || '') : '';
+    if (currentUrl.indexOf('/dev') !== -1) {
+      Logger.log('⚠️ ВНИМАНИЕ: webhook установлен на /dev. Для стабильной работы нужен /exec');
+    }
+  } catch (e) {}
   Logger.log(JSON.stringify(resp));
   return resp;
 }
