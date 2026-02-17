@@ -4,6 +4,7 @@
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
 const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
+const BUILD_VERSION = '2026-02-17-stable-take-flow-v1';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
@@ -317,19 +318,19 @@ function handleTelegramUpdate(body) {
           const currentStatus = String(order['Статус'] || '').toLowerCase();
           const existingMasterId = String(order['Master ID'] || '').trim();
           const existingMasterName = String(order['Master Name'] || '').trim();
-          if (currentStatus.indexOf('взята') !== -1 && existingMasterId) {
-            if (existingMasterId === masterId) {
+          if (currentStatus.indexOf('взята') !== -1) {
+            const takenBy = existingMasterName || (existingMasterId ? ('ID ' + existingMasterId) : 'другим мастером');
+            if (existingMasterId && existingMasterId === masterId) {
               answerCallback(token, callbackId, 'ℹ️ Вы уже приняли эту заявку.');
               return jsonResponse({ ok: true, alreadyTakenBySameMaster: true }, 200);
             }
-
-            const takenBy = existingMasterName || 'другим мастером';
             answerCallback(token, callbackId, `❌ Заявка уже принята: ${takenBy}`);
             return jsonResponse({ ok: true, alreadyTaken: true }, 200);
           }
 
           const takenAt = new Date().toLocaleString('ru-RU');
           updateOrderTaken(orderId, masterId, masterName, takenAt);
+          answerCallback(token, callbackId, '✅ Заявка принята. Отправляю подробности в личные сообщения...');
 
           // Получаем обновленную строку для отправки полной информации мастеру.
           const updatedOrder = getOrderByRow(rowNum);
@@ -344,45 +345,18 @@ function handleTelegramUpdate(body) {
             })
           });
 
-          // Убираем кнопку из группового сообщения и пишем, кто принял заявку.
+          // Минимальный стабильный путь: только убираем кнопку у сообщения в группе.
           try {
             const chatId = updatedOrder['Telegram Chat ID'] || cbChatId;
             const messageId = updatedOrder['Telegram Message ID'] || cbMessageId;
-            const safeMasterName = escapeTelegramHtml(masterName);
-            const safeTakenAt = escapeTelegramHtml(takenAt);
 
-            if (chatId && messageId && cb.message && cb.message.text) {
-              const updatedText = `${cb.message.text}\n\n✅ Взял мастер: <b>${safeMasterName}</b>\n🕒 ${safeTakenAt}`;
-              const editResp = urlFetchJson(`https://api.telegram.org/bot${token}/editMessageText`, {
+            if (chatId && messageId) {
+              urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
                 method: 'post',
                 payload: JSON.stringify({
                   chat_id: chatId,
                   message_id: Number(messageId),
-                  text: updatedText,
-                  parse_mode: 'HTML',
-                  reply_markup: { inline_keyboard: [] },
-                  disable_web_page_preview: true
-                })
-              });
-
-              if (!editResp || editResp.ok === false) {
-                urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
-                  method: 'post',
-                  payload: JSON.stringify({
-                    chat_id: chatId,
-                    message_id: Number(messageId),
-                    reply_markup: { inline_keyboard: [] }
-                  })
-                });
-              }
-            } else if (chatId) {
-              urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-                method: 'post',
-                payload: JSON.stringify({
-                  chat_id: chatId,
-                  text: `✅ Заявка <code>${orderId}</code> принята мастером <b>${safeMasterName}</b>`,
-                  parse_mode: 'HTML',
-                  disable_web_page_preview: true
+                  reply_markup: { inline_keyboard: [] }
                 })
               });
             }
@@ -390,10 +364,8 @@ function handleTelegramUpdate(body) {
             Logger.log('Failed to update group message: ' + e);
           }
 
-          if (dmResp && dmResp.ok) {
-            answerCallback(token, callbackId, '✅ Заявка принята! Полная информация отправлена в личные сообщения.');
-          } else {
-            answerCallback(token, callbackId, '⚠️ Заявка принята, но не удалось отправить личное сообщение. Нажмите /start боту в личке.');
+          if (!dmResp || dmResp.ok !== true) {
+            Logger.log('Failed to send DM for order ' + orderId + ': ' + JSON.stringify(dmResp));
           }
 
           return jsonResponse({ ok: true, masterAccepted: true }, 200);
@@ -902,6 +874,13 @@ function formatDateForDisplay(value) {
     return Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'dd.MM.yyyy');
   }
 
+  // Строки вида "Sat Feb 28 2026 00:00:00 GMT+0700 (....)".
+  const noTzLabel = raw.replace(/\s+\([^)]+\)\s*$/, '');
+  const parsedNoTzLabel = new Date(noTzLabel);
+  if (!isNaN(parsedNoTzLabel.getTime())) {
+    return Utilities.formatDate(parsedNoTzLabel, Session.getScriptTimeZone(), 'dd.MM.yyyy');
+  }
+
   return raw;
 }
 
@@ -923,6 +902,13 @@ function formatTimeForDisplay(value) {
   const parsed = new Date(raw);
   if (!isNaN(parsed.getTime())) {
     return Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'HH:mm');
+  }
+
+  // Строки вида "Sat Dec 30 1899 10:00:00 GMT+0531 (....)".
+  const noTzLabel = raw.replace(/\s+\([^)]+\)\s*$/, '');
+  const parsedNoTzLabel = new Date(noTzLabel);
+  if (!isNaN(parsedNoTzLabel.getTime())) {
+    return Utilities.formatDate(parsedNoTzLabel, Session.getScriptTimeZone(), 'HH:mm');
   }
 
   return raw;
@@ -1035,12 +1021,12 @@ function generateFullText(orderRow, orderData) {
   text += `Ваша оплата: ${masterPay} руб\n\n`;
 
   text += `✅ <b>ЧТО НУЖНО СДЕЛАТЬ</b>\n`;
-  text += `1️⃣ Напишите клиенту готовое сообщение из блока ниже.\n`;
-  text += `2️⃣ Подготовьтесь к заявке ответственно: заранее возьмите нужное оборудование и химию, спланируйте маршрут и приезжайте без опозданий.\n`;
-  text += `3️⃣ Когда прибудете на объект, отправьте фото химии и оборудования.\n`;
-  text += `4️⃣ После завершения работы отправьте фотографии результата.\n`;
+  text += `1️⃣ Написать клиенту готовое сообщение из блока ниже.\n`;
+  text += `2️⃣ Подготовьтесь ответственно к заявке: заранее возьмите нужное оборудование, спланируйте, как добраться, и приезжайте без опозданий.\n`;
+  text += `3️⃣ Отправьте фотографии химии и оборудования, когда прибудете на объект.\n`;
+  text += `4️⃣ После работы отправьте фотографии выполненных работ.\n`;
   text += `5️⃣ Отправьте фото подписанного акта выполненных работ.\n`;
-  text += `6️⃣ Подтвердите получение оплаты от клиента.\n\n`;
+  text += `6️⃣ Подтвердите оплату от клиента.\n\n`;
 
   text += `💬 <b>ГОТОВОЕ СООБЩЕНИЕ КЛИЕНТУ</b>\n`;
   text += `<code>${escapeTelegramHtml(clientMessage)}</code>`;
@@ -1456,6 +1442,7 @@ function __diagnoseTelegramButton() {
 
   const diag = {
     ok: true,
+    buildVersion: BUILD_VERSION,
     currentWebhookUrl: currentWebhookUrl,
     expectedExecUrl: expectedExecUrl,
     webhookOnExec: !!currentWebhookUrl && currentWebhookUrl.indexOf('/exec') !== -1,
