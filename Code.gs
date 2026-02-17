@@ -77,6 +77,15 @@ function doPost(e) {
     }
 
     // Обработка заявки с фронтенда (создание или обновление)
+    if (body.action === 'probe_version') {
+      return jsonResponse({
+        ok: true,
+        action: 'probe_version',
+        buildVersion: BUILD_VERSION,
+        time: formatCreatedAt(new Date())
+      }, 200);
+    }
+
     if (body.action === 'create' || body.action === 'update' || body.orderId) {
       return createOrUpdateOrder(body);
     }
@@ -1686,6 +1695,36 @@ function __getBuildInfo() {
   return info;
 }
 
+function __probeWebhookDoPostVersion() {
+  const url = resolveWebhookExecUrl('');
+  if (!url) return { ok: false, error: 'webhook url not available' };
+
+  try {
+    const resp = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ action: 'probe_version' }),
+      muteHttpExceptions: true,
+      followRedirects: true
+    });
+
+    const statusCode = resp.getResponseCode();
+    const bodyText = resp.getContentText() || '';
+    let bodyJson = null;
+    try { bodyJson = JSON.parse(bodyText); } catch (e) {}
+
+    return {
+      ok: statusCode >= 200 && statusCode < 300,
+      url: url,
+      statusCode: statusCode,
+      bodyJson: bodyJson,
+      bodySnippet: bodyText.slice(0, 400)
+    };
+  } catch (e) {
+    return { ok: false, url: url, error: e.message };
+  }
+}
+
 function __hardResetBotRouting() {
   const token = PROP.getProperty('TELEGRAM_BOT_TOKEN') || '';
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан');
@@ -1709,13 +1748,15 @@ function __hardResetBotRouting() {
   const infoResp = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, {
     method: 'get'
   });
+  const probeDoPost = __probeWebhookDoPostVersion();
 
   const out = {
     buildVersion: BUILD_VERSION,
     targetUrl: url,
     deleteWebhook: delResp,
     setWebhook: setResp,
-    webhookInfo: infoResp
+    webhookInfo: infoResp,
+    probeDoPost: probeDoPost
   };
   Logger.log(JSON.stringify(out));
   return out;
