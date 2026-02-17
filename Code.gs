@@ -48,6 +48,13 @@ function doPost(e) {
         body = JSON.parse(raw);
       } catch (err) {
         body = event.parameter || {};
+        if (body && body.json) {
+          try {
+            body = JSON.parse(body.json);
+          } catch (err2) {
+            // оставляем body как есть, ниже вернём unknown action с логами
+          }
+        }
       }
     } else if (event.parameter && event.parameter.json) {
       // Когда запрос отправлен как form-urlencoded с полем `json`
