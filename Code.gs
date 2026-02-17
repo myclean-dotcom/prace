@@ -1360,3 +1360,54 @@ function normalizeWebhookUrlToExec(url) {
   if (!raw) return '';
   return raw.replace(/\/dev(\?|$)/, '/exec$1');
 }
+
+// Быстрая настройка webhook строго на prod URL (/exec)
+function __setWebhookProd() {
+  let url = '';
+  try {
+    url = ScriptApp.getService().getUrl();
+  } catch (e) {
+    url = '';
+  }
+
+  url = normalizeWebhookUrlToExec(url);
+  if (!url) {
+    throw new Error('Не удалось получить URL сервиса. Сначала разверните Web App.');
+  }
+
+  return __resetTelegramWebhook(url);
+}
+
+// Диагностика кнопки Telegram без поиска callback_query в журналах doPost
+function __diagnoseTelegramButton() {
+  const info = __getTelegramWebhookInfo();
+  const result = (info && info.result) ? info.result : {};
+
+  let serviceUrl = '';
+  try {
+    serviceUrl = ScriptApp.getService().getUrl();
+  } catch (e) {
+    serviceUrl = '';
+  }
+
+  const expectedExecUrl = normalizeWebhookUrlToExec(serviceUrl);
+  const currentWebhookUrl = String(result.url || '');
+  const pendingCount = Number(result.pending_update_count || 0);
+  const lastError = String(result.last_error_message || '');
+
+  const diag = {
+    ok: true,
+    currentWebhookUrl: currentWebhookUrl,
+    expectedExecUrl: expectedExecUrl,
+    webhookOnExec: !!currentWebhookUrl && currentWebhookUrl.indexOf('/exec') !== -1,
+    webhookMatchesCurrentDeployment: !!expectedExecUrl && currentWebhookUrl === expectedExecUrl,
+    pendingUpdateCount: pendingCount,
+    lastError: lastError || 'нет',
+    advice: (!currentWebhookUrl || currentWebhookUrl.indexOf('/exec') === -1)
+      ? 'Запустите __setWebhookProd()'
+      : 'Webhook выглядит корректно. Если кнопка не работает, нажмите ее и повторно запустите __diagnoseTelegramButton().'
+  };
+
+  Logger.log(JSON.stringify(diag));
+  return diag;
+}
