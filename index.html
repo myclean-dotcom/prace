@@ -1322,12 +1322,14 @@
         </div>
 
         <footer>
-            <p>© 2024 Система расчета и оформления заявок. Для внутреннего использования менеджерами.</p>
+            <p id="footerMeta">© 2024 Система расчета и оформления заявок. Для внутреннего использования менеджерами.</p>
             <p style="margin-top: 5px; font-size: 0.8rem;">Все расчеты являются предварительными. Точную стоимость определяет менеджер.</p>
         </footer>
     </div>
 
     <script>
+        const FRONTEND_VERSION = '2026-02-18-web-v1';
+
         const CONFIG = {
             TELEGRAM_BOT_TOKEN: '',
             TELEGRAM_CHAT_ID: '',
@@ -1445,11 +1447,20 @@
             
             const twoHoursLater = new Date(today.getTime() + 2 * 60 * 60 * 1000);
             orderTime.value = formatTimeInputLocal(twoHoursLater);
+
+            updateFooterMeta();
             
             checkTelegramBot();
             setupEventListeners();
             calculatePrice();
         });
+
+        function updateFooterMeta() {
+            const footerMeta = document.getElementById('footerMeta');
+            if (!footerMeta) return;
+            const year = new Date().getFullYear();
+            footerMeta.textContent = `© ${year} Система расчета и оформления заявок. Версия: ${FRONTEND_VERSION}. Для внутреннего использования менеджерами.`;
+        }
 
         function setupEventListeners() {
             cleaningTypeOptions.forEach(option => {
