@@ -3,7 +3,7 @@
 
 const PROP = PropertiesService.getScriptProperties();
 
-const BUILD_VERSION = '2026-02-18-clean-v6';
+const BUILD_VERSION = '2026-02-18-clean-v7';
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
 const DEFAULT_WEBAPP_EXEC_URL = '';
@@ -666,6 +666,10 @@ function handleTelegramUpdate(body) {
     }
 
     const parsed = parseCallbackActionData(data);
+    try {
+      Logger.log('callback_query raw=' + data + ' parsed=' + JSON.stringify(parsed || null));
+    } catch (err) {}
+
     if (!parsed) {
       answerCallback(token, callbackId, 'Неизвестное действие');
       return jsonResponse({ ok: true, ignored: true, buildVersion: BUILD_VERSION }, 200);
@@ -1507,6 +1511,7 @@ function parseCallbackActionData(data) {
   const raw = String(data || '').trim();
   if (!raw) return null;
 
+  // Основной формат: action|orderId
   const v2 = raw.match(/^(take|arrive|done|cancel)\|(.+)$/);
   if (v2) {
     const action = String(v2[1] || '').trim();
@@ -1514,9 +1519,26 @@ function parseCallbackActionData(data) {
     return (action && id) ? { action: action, orderId: id } : null;
   }
 
+  // Совместимость: action_orderId
+  const v1 = raw.match(/^(take|arrive|done|cancel)_(.+)$/);
+  if (v1) {
+    const action = String(v1[1] || '').trim();
+    const id = String(v1[2] || '').trim();
+    return (action && id) ? { action: action, orderId: id } : null;
+  }
+
+  // Совместимость со старым форматом takev2|orderId
   if (raw.indexOf('takev2|') === 0) {
     const id = String(raw.split('|')[1] || '').trim();
     return id ? { action: 'take', orderId: id } : null;
+  }
+
+  // Терпимость к нестандартным разделителям
+  const loose = raw.match(/^(take|arrive|done|cancel)[^A-Za-z0-9]+(.+)$/);
+  if (loose) {
+    const action = String(loose[1] || '').trim();
+    const id = String(loose[2] || '').trim();
+    return (action && id) ? { action: action, orderId: id } : null;
   }
 
   if (raw.indexOf('take_') === 0) {
