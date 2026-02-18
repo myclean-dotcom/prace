@@ -3,7 +3,7 @@
 
 const PROP = PropertiesService.getScriptProperties();
 
-const BUILD_VERSION = '2026-02-18-clean-v1';
+const BUILD_VERSION = '2026-02-18-clean-v2';
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
 const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyJhU9LoZbVCCtEPQCK4u3_VlQS0qBv9fcjLUHXgK0aNFSFcxLXqgIHa8dJ_i7eB4Ef/exec';
@@ -32,6 +32,8 @@ const REQUIRED_HEADERS = [
   'Master ID',
   'Master Name',
   'Дата принятия',
+  'Напоминание 24ч',
+  'Напоминание 2ч',
   'Статус выполнения'
 ];
 
@@ -386,6 +388,12 @@ function setCellByHeader(sheet, row, headerMap, headerName, value) {
   sheet.getRange(row, col).setValue(value);
 }
 
+function getCellFromRowByHeader(rowValues, headerMap, headerName) {
+  const col = headerMap[headerName];
+  if (!col) return '';
+  return rowValues[col - 1];
+}
+
 function getOrderByRow(rowNum) {
   const sheet = getSheet();
   const headers = sheet
@@ -440,47 +448,30 @@ function createOrUpdateOrder(payload, action) {
   const rowData = buildOrderRowData(order, 'Опубликована');
   appendOrderRow(sheet, rowData);
 
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
-  const chatId = resolveTelegramChat(order.customerCity, payload.telegramChannel);
+  const publishResult = sendOrderToGroup(order, payload.telegramChannel);
+  if (!publishResult.ok) {
+    const note = publishResult.reason === 'token_not_set'
+      ? 'saved, token not set'
+      : publishResult.reason === 'chat_not_set'
+        ? 'saved, chat id not set'
+        : 'saved, telegram error';
 
-  if (!token) {
-    return jsonResponse({ ok: true, orderId: orderId, note: 'saved, token not set', buildVersion: BUILD_VERSION }, 200);
+    return jsonResponse({
+      ok: true,
+      orderId: orderId,
+      note: note,
+      telegram: publishResult.telegram || null,
+      buildVersion: BUILD_VERSION
+    }, 200);
   }
 
-  if (!chatId) {
-    return jsonResponse({ ok: true, orderId: orderId, note: 'saved, chat id not set', buildVersion: BUILD_VERSION }, 200);
-  }
-
-  const briefText = generateBriefText(order);
-  const callbackData = makeTakeCallbackData(orderId);
-
-  const sendResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'post',
-    payload: JSON.stringify({
-      chat_id: chatId,
-      text: briefText,
-      parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [[
-          { text: '✅ ВЫХОЖУ НА ЗАЯВКУ', callback_data: callbackData }
-        ]]
-      },
-      disable_web_page_preview: true
-    })
-  });
-
-  if (!sendResp || sendResp.ok !== true) {
-    Logger.log('Telegram sendMessage failed: ' + JSON.stringify(sendResp));
-    return jsonResponse({ ok: true, orderId: orderId, note: 'saved, telegram error', telegram: sendResp || null, buildVersion: BUILD_VERSION }, 200);
-  }
-
-  setTelegramIdsForOrder(orderId, chatId, sendResp.result.message_id);
+  setTelegramIdsForOrder(orderId, publishResult.chatId, publishResult.messageId);
 
   return jsonResponse({
     ok: true,
     orderId: orderId,
-    chat: String(chatId),
-    messageId: sendResp.result.message_id,
+    chat: String(publishResult.chatId),
+    messageId: publishResult.messageId,
     buildVersion: BUILD_VERSION
   }, 200);
 }
@@ -510,6 +501,8 @@ function buildOrderRowData(order, status) {
     'Master ID': '',
     'Master Name': '',
     'Дата принятия': '',
+    'Напоминание 24ч': '',
+    'Напоминание 2ч': '',
     'Статус выполнения': ''
   };
 }
@@ -564,6 +557,61 @@ function setTelegramIdsForOrder(orderId, chatId, messageId) {
   setCellByHeader(sheet, rowNum, map, 'Telegram Message ID', String(messageId || '').trim());
 }
 
+function mapSheetOrderToOrderModel(order) {
+  return {
+    orderId: String(order['Номер заявки'] || '').trim(),
+    customerCity: String(order['Город'] || '').trim(),
+    cleaningType: String(order['Тип уборки'] || '').trim(),
+    area: String(order['Площадь (м²)'] || '').trim(),
+    orderDate: String(order['Дата уборки'] || '').trim(),
+    orderTime: String(order['Время уборки'] || '').trim(),
+    masterPay: String(order['Зарплата мастерам'] || '').trim(),
+    orderTotal: String(order['Сумма заказа'] || '').trim(),
+    customerAddress: String(order['Улица и дом'] || '').trim(),
+    worksDescription: String(order['Описание работ'] || '').trim(),
+    equipment: String(order['Оборудование'] || '').trim(),
+    chemistry: String(order['Химия'] || '').trim()
+  };
+}
+
+function sendOrderToGroup(order, fallbackTelegramChannel) {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  if (!token) return { ok: false, reason: 'token_not_set' };
+
+  const chatId = resolveTelegramChat(order.customerCity, fallbackTelegramChannel);
+  if (!chatId) return { ok: false, reason: 'chat_not_set' };
+
+  const briefText = generateBriefText(order);
+  const callbackData = makeTakeCallbackData(order.orderId);
+
+  const sendResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: chatId,
+      text: briefText,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '✅ ВЫХОЖУ НА ЗАЯВКУ', callback_data: callbackData }
+        ]]
+      },
+      disable_web_page_preview: true
+    })
+  });
+
+  if (!sendResp || sendResp.ok !== true || !sendResp.result) {
+    Logger.log('Telegram sendMessage failed: ' + JSON.stringify(sendResp));
+    return { ok: false, reason: 'telegram_error', telegram: sendResp || null };
+  }
+
+  return {
+    ok: true,
+    chatId: String(chatId),
+    messageId: String(sendResp.result.message_id || '').trim(),
+    telegram: sendResp
+  };
+}
+
 /* ---------- Telegram callback ---------- */
 
 function handleTelegramUpdate(body) {
@@ -584,7 +632,7 @@ function handleTelegramUpdate(body) {
       return jsonResponse({ ok: true, duplicate: true, buildVersion: BUILD_VERSION }, 200);
     }
 
-    const parsed = parseTakeCallbackData(data);
+    const parsed = parseCallbackActionData(data);
     if (!parsed) {
       answerCallback(token, callbackId, 'Неизвестное действие');
       return jsonResponse({ ok: true, ignored: true, buildVersion: BUILD_VERSION }, 200);
@@ -607,7 +655,7 @@ function handleTelegramUpdate(body) {
 
       const order = getOrderByRow(rowNum);
       const orderId = String(order['Номер заявки'] || parsed.orderId || '').trim();
-      const status = String(order['Статус'] || '').toLowerCase();
+      const status = String(order['Статус'] || '').toLowerCase().trim();
       const currentMasterId = String(order['Master ID'] || '').trim();
 
       const masterId = String(from.id || '').trim();
@@ -620,68 +668,148 @@ function handleTelegramUpdate(body) {
         return jsonResponse({ ok: false, error: 'Bad callback payload', buildVersion: BUILD_VERSION }, 200);
       }
 
-      if (status.indexOf('взята') !== -1) {
-        if (currentMasterId && currentMasterId === masterId) {
-          answerCallback(token, callbackId, 'ℹ️ Вы уже приняли эту заявку');
-          return jsonResponse({ ok: true, alreadyTakenBySameMaster: true, buildVersion: BUILD_VERSION }, 200);
+      if (parsed.action === 'take') {
+        if (status.indexOf('взята') !== -1 || status.indexOf('на объекте') !== -1) {
+          if (currentMasterId && currentMasterId === masterId) {
+            answerCallback(token, callbackId, 'ℹ️ Вы уже приняли эту заявку');
+            return jsonResponse({ ok: true, alreadyTakenBySameMaster: true, buildVersion: BUILD_VERSION }, 200);
+          }
+          answerCallback(token, callbackId, '❌ Заявка уже принята другим мастером');
+          return jsonResponse({ ok: true, alreadyTaken: true, buildVersion: BUILD_VERSION }, 200);
         }
-        answerCallback(token, callbackId, '❌ Заявка уже принята другим мастером');
-        return jsonResponse({ ok: true, alreadyTaken: true, buildVersion: BUILD_VERSION }, 200);
-      }
 
-      const takenAt = formatDateTime(new Date());
-      updateOrderTakenByRow(rowNum, masterId, masterName, takenAt);
-      answerCallback(token, callbackId, '✅ Заявка принята. Отправляю детали в личные сообщения.');
+        if (status.indexOf('заверш') !== -1) {
+          answerCallback(token, callbackId, '❌ Заявка уже завершена');
+          return jsonResponse({ ok: true, alreadyDone: true, buildVersion: BUILD_VERSION }, 200);
+        }
 
-      const updatedOrder = getOrderByRow(rowNum);
+        const takenAt = formatDateTime(new Date());
+        updateOrderTakenByRow(rowNum, masterId, masterName, takenAt);
+        answerCallback(token, callbackId, '✅ Заявка принята. Отправляю детали в личные сообщения.');
 
-      if (!isMasterDmAlreadySent(orderId)) {
-        const fullText = generateFullText(updatedOrder);
+        const updatedOrder = getOrderByRow(rowNum);
 
-        const dm1 = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'post',
-          payload: JSON.stringify({
-            chat_id: masterId,
-            text: fullText,
-            parse_mode: 'HTML'
-          })
-        });
+        if (!isMasterDmAlreadySent(orderId)) {
+          const fullText = generateFullText(updatedOrder);
 
-        if (dm1 && dm1.ok === true) {
-          const clientMessage = buildClientReadyMessage(updatedOrder);
-          urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+          const dm1 = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'post',
             payload: JSON.stringify({
               chat_id: masterId,
-              text: `📩 Сообщение клиенту (скопируйте и отправьте):\n\n<code>${escapeTelegramHtml(clientMessage)}</code>`,
+              text: fullText,
+              parse_mode: 'HTML',
+              reply_markup: buildMasterActionKeyboard(orderId)
+            })
+          });
+
+          if (dm1 && dm1.ok === true) {
+            const clientMessage = buildClientReadyMessage(updatedOrder);
+            const shareUrl = buildTelegramShareUrl(clientMessage);
+            const dm2Payload = {
+              chat_id: masterId,
+              text: `<code>${escapeTelegramHtml(clientMessage)}</code>`,
               parse_mode: 'HTML'
-            })
-          });
-          markMasterDmSent(orderId, masterId);
+            };
+            if (shareUrl) {
+              dm2Payload.reply_markup = {
+                inline_keyboard: [[
+                  { text: '📤 ОТКРЫТЬ ТЕКСТ ДЛЯ ОТПРАВКИ', url: shareUrl }
+                ]]
+              };
+            }
+
+            urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+              method: 'post',
+              payload: JSON.stringify(dm2Payload)
+            });
+
+            markMasterDmSent(orderId, masterId);
+          } else {
+            Logger.log('DM send failed for order ' + orderId + ': ' + JSON.stringify(dm1));
+          }
+        }
+
+        try {
+          const chatId = String(updatedOrder['Telegram Chat ID'] || cbChatId || '').trim();
+          const messageId = String(updatedOrder['Telegram Message ID'] || cbMessageId || '').trim();
+
+          if (chatId && messageId) {
+            urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+              method: 'post',
+              payload: JSON.stringify({
+                chat_id: chatId,
+                message_id: Number(messageId),
+                reply_markup: { inline_keyboard: [] }
+              })
+            });
+          }
+        } catch (err) {
+          Logger.log('editMessageReplyMarkup failed: ' + err.message);
+        }
+
+        return jsonResponse({ ok: true, orderId: orderId, action: 'take', buildVersion: BUILD_VERSION }, 200);
+      }
+
+      if (parsed.action === 'arrive') {
+        if (!isOrderAssignedToMaster(status, currentMasterId, masterId)) {
+          answerCallback(token, callbackId, '❌ Только назначенный мастер может отметить прибытие');
+          return jsonResponse({ ok: true, denied: true, action: 'arrive', buildVersion: BUILD_VERSION }, 200);
+        }
+
+        const arrivedAt = formatDateTime(new Date());
+        updateOrderArrivedByRow(rowNum, arrivedAt);
+        const updatedOrder = getOrderByRow(rowNum);
+
+        notifyManagerNeedInvoice(updatedOrder, masterName, arrivedAt);
+        answerCallback(token, callbackId, '✅ Отметка о прибытии сохранена');
+        return jsonResponse({ ok: true, orderId: orderId, action: 'arrive', buildVersion: BUILD_VERSION }, 200);
+      }
+
+      if (parsed.action === 'done') {
+        if (!isOrderAssignedToMaster(status, currentMasterId, masterId)) {
+          answerCallback(token, callbackId, '❌ Только назначенный мастер может завершить заявку');
+          return jsonResponse({ ok: true, denied: true, action: 'done', buildVersion: BUILD_VERSION }, 200);
+        }
+
+        const doneAt = formatDateTime(new Date());
+        updateOrderDoneByRow(rowNum, doneAt);
+        const updatedOrder = getOrderByRow(rowNum);
+        notifyManagerOrderDone(updatedOrder, masterName, doneAt);
+
+        answerCallback(token, callbackId, '✅ Заявка отмечена как завершенная');
+        return jsonResponse({ ok: true, orderId: orderId, action: 'done', buildVersion: BUILD_VERSION }, 200);
+      }
+
+      if (parsed.action === 'cancel') {
+        if (currentMasterId && currentMasterId !== masterId) {
+          answerCallback(token, callbackId, '❌ Только назначенный мастер может отменить заявку');
+          return jsonResponse({ ok: true, denied: true, action: 'cancel', buildVersion: BUILD_VERSION }, 200);
+        }
+
+        const cancelledAt = formatDateTime(new Date());
+        updateOrderCancelledByRow(rowNum, masterName, cancelledAt);
+        clearMasterDmSent(orderId);
+        const republish = republishOrderToGroupByRow(rowNum);
+        const updatedOrder = getOrderByRow(rowNum);
+
+        if (republish.ok) {
+          answerCallback(token, callbackId, '🔁 Заявка отменена и снова отправлена в группу');
         } else {
-          Logger.log('DM send failed for order ' + orderId + ': ' + JSON.stringify(dm1));
+          answerCallback(token, callbackId, '⚠️ Отмена сохранена, но не удалось переотправить в группу');
         }
+
+        notifyManagerOrderCancelled(updatedOrder, masterName, cancelledAt, republish);
+        return jsonResponse({
+          ok: true,
+          orderId: orderId,
+          action: 'cancel',
+          republish: republish,
+          buildVersion: BUILD_VERSION
+        }, 200);
       }
 
-      try {
-        const chatId = String(updatedOrder['Telegram Chat ID'] || cbChatId || '').trim();
-        const messageId = String(updatedOrder['Telegram Message ID'] || cbMessageId || '').trim();
-
-        if (chatId && messageId) {
-          urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
-            method: 'post',
-            payload: JSON.stringify({
-              chat_id: chatId,
-              message_id: Number(messageId),
-              reply_markup: { inline_keyboard: [] }
-            })
-          });
-        }
-      } catch (err) {
-        Logger.log('editMessageReplyMarkup failed: ' + err.message);
-      }
-
-      return jsonResponse({ ok: true, orderId: orderId, buildVersion: BUILD_VERSION }, 200);
+      answerCallback(token, callbackId, 'Неизвестное действие');
+      return jsonResponse({ ok: true, ignored: true, buildVersion: BUILD_VERSION }, 200);
     } catch (err) {
       Logger.log('callback error: ' + err.message + '\n' + (err.stack || ''));
       answerCallback(token, callbackId, '❌ Ошибка обработки кнопки. Нажмите еще раз.');
@@ -724,6 +852,74 @@ function updateOrderTakenByRow(rowNum, masterId, masterName, takenAt) {
   setCellByHeader(sheet, rowNum, map, 'Master ID', String(masterId || '').trim());
   setCellByHeader(sheet, rowNum, map, 'Master Name', String(masterName || '').trim());
   setCellByHeader(sheet, rowNum, map, 'Дата принятия', String(takenAt || '').trim());
+  setCellByHeader(sheet, rowNum, map, 'Напоминание 24ч', '');
+  setCellByHeader(sheet, rowNum, map, 'Напоминание 2ч', '');
+  setCellByHeader(sheet, rowNum, map, 'Статус выполнения', '');
+}
+
+function isOrderAssignedToMaster(statusLower, currentMasterId, masterId) {
+  const status = String(statusLower || '').toLowerCase();
+  const current = String(currentMasterId || '').trim();
+  const master = String(masterId || '').trim();
+  if (!current || !master) return false;
+  if (current !== master) return false;
+  return (
+    status.indexOf('взята') !== -1 ||
+    status.indexOf('на объекте') !== -1
+  );
+}
+
+function updateOrderArrivedByRow(rowNum, arrivedAt) {
+  const sheet = getSheet();
+  const map = getHeaderMap(sheet);
+  setCellByHeader(sheet, rowNum, map, 'Статус', 'На объекте');
+  setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Прибыл на объект: ' + String(arrivedAt || '').trim());
+}
+
+function updateOrderDoneByRow(rowNum, doneAt) {
+  const sheet = getSheet();
+  const map = getHeaderMap(sheet);
+  setCellByHeader(sheet, rowNum, map, 'Статус', 'Завершена');
+  setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Работы завершены: ' + String(doneAt || '').trim());
+}
+
+function updateOrderCancelledByRow(rowNum, masterName, cancelledAt) {
+  const sheet = getSheet();
+  const map = getHeaderMap(sheet);
+  const cleanMasterName = String(masterName || '').trim() || 'Мастер';
+  const cleanCancelledAt = String(cancelledAt || '').trim();
+
+  setCellByHeader(sheet, rowNum, map, 'Статус', 'Опубликована');
+  setCellByHeader(sheet, rowNum, map, 'Master ID', '');
+  setCellByHeader(sheet, rowNum, map, 'Master Name', '');
+  setCellByHeader(sheet, rowNum, map, 'Дата принятия', '');
+  setCellByHeader(sheet, rowNum, map, 'Напоминание 24ч', '');
+  setCellByHeader(sheet, rowNum, map, 'Напоминание 2ч', '');
+  setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Отменена мастером ' + cleanMasterName + ': ' + cleanCancelledAt);
+}
+
+function republishOrderToGroupByRow(rowNum) {
+  const orderRow = getOrderByRow(rowNum);
+  const orderModel = mapSheetOrderToOrderModel(orderRow);
+  if (!orderModel.orderId) {
+    return { ok: false, reason: 'order_id_missing' };
+  }
+
+  const publishResult = sendOrderToGroup(orderModel, '');
+  if (publishResult.ok) {
+    setTelegramIdsForOrder(orderModel.orderId, publishResult.chatId, publishResult.messageId);
+  }
+  return publishResult;
+}
+
+function buildMasterActionKeyboard(orderId) {
+  return {
+    inline_keyboard: [
+      [{ text: '📍 ПРИЕХАЛ НА ОБЪЕКТ', callback_data: makeCallbackData('arrive', orderId) }],
+      [{ text: '✅ ЗАВЕРШИЛ ЗАЯВКУ', callback_data: makeCallbackData('done', orderId) }],
+      [{ text: '❌ ОТМЕНИТЬ ЗАЯВКУ', callback_data: makeCallbackData('cancel', orderId) }]
+    ]
+  };
 }
 
 function appendPhotoByMasterId(masterId, fileId, caption) {
@@ -813,7 +1009,7 @@ function generateFullText(order) {
   const chemistry = String(order['Химия'] || '').trim() || '—';
   const description = String(order['Описание работ'] || '').trim();
 
-  const clientMessage = buildClientReadyMessage(order);
+  const mapLink = build2gisSearchLink(String(order['Город'] || '').trim(), fullAddress);
 
   let text = `🧹 <b>ПОЛНАЯ ИНФОРМАЦИЯ О ЗАЯВКЕ №${orderId}</b>\n`;
   text += '────────────────────────────────────\n\n';
@@ -824,6 +1020,9 @@ function generateFullText(order) {
   text += `📐 Площадь: ${area} м²\n`;
   text += `🗓 Дата и время: ${dateTime}\n`;
   text += `📍 Адрес: ${escapeTelegramHtml(fullAddress || 'не указан')}\n\n`;
+  if (mapLink) {
+    text += `🗺 2ГИС: ${escapeTelegramHtml(mapLink)}\n\n`;
+  }
 
   text += '<b>👤 ДАННЫЕ КЛИЕНТА</b>\n';
   text += `Имя: ${clientName}\n`;
@@ -843,15 +1042,13 @@ function generateFullText(order) {
   text += `Ваша оплата: ${masterPay} руб\n\n`;
 
   text += '<b>✅ ЧТО НУЖНО СДЕЛАТЬ</b>\n';
-  text += '1️⃣ Написать клиенту готовое сообщение из блока ниже.\n';
+  text += '1️⃣ Откройте следующее сообщение и отправьте его клиенту.\n';
   text += '2️⃣ Подготовьтесь ответственно к заявке: заранее возьмите нужное оборудование, спланируйте, как добраться, и приезжайте без опозданий.\n';
   text += '3️⃣ Отправьте фотографии химии и оборудования, когда прибудете на объект.\n';
   text += '4️⃣ После работы отправьте фотографии выполненных работ.\n';
   text += '5️⃣ Отправьте фото подписанного акта выполненных работ.\n';
   text += '6️⃣ Подтвердите оплату от клиента.\n\n';
 
-  text += '<b>💬 ГОТОВОЕ СООБЩЕНИЕ КЛИЕНТУ</b>\n';
-  text += `<code>${escapeTelegramHtml(clientMessage)}</code>\n\n`;
   text += `🔖 Версия: <code>${escapeTelegramHtml(BUILD_VERSION)}</code>`;
 
   return text;
@@ -884,29 +1081,143 @@ function extractStreetOnly(address) {
   return String(firstChunk || '').trim();
 }
 
-/* ---------- Callback parsing & dedupe ---------- */
-
-function makeTakeCallbackData(orderId) {
-  return `take|${String(orderId || '').trim()}`;
+function build2gisSearchLink(city, fullAddress) {
+  const query = [String(city || '').trim(), String(fullAddress || '').trim()]
+    .filter(Boolean)
+    .join(', ');
+  if (!query) return '';
+  return 'https://2gis.ru/search/' + encodeURIComponent(query);
 }
 
-function parseTakeCallbackData(data) {
+function buildTelegramShareUrl(messageText) {
+  const text = String(messageText || '').trim();
+  if (!text) return '';
+  return 'https://t.me/share/url?url=&text=' + encodeURIComponent(text);
+}
+
+function getManagerChatId() {
+  return String(
+    PROP.getProperty('TELEGRAM_MANAGER_CHAT_ID') ||
+    PROP.getProperty('TELEGRAM_ADMIN_CHAT_ID') ||
+    ''
+  ).trim();
+}
+
+function notifyManagerNeedInvoice(order, masterName, arrivedAt) {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const managerChatId = getManagerChatId();
+  if (!token || !managerChatId) return;
+
+  const orderId = escapeTelegramHtml(order['Номер заявки'] || '');
+  const city = String(order['Город'] || '').trim();
+  const fullAddress = [
+    String(order['Улица и дом'] || '').trim(),
+    String(order['Квартира/офис'] || '').trim()
+  ].filter(Boolean).join(', ');
+  const mapLink = build2gisSearchLink(city, fullAddress);
+  const dateTime = formatDateTimeForDisplay(order['Дата уборки'], order['Время уборки']);
+
+  let text = '🔔 <b>Мастер прибыл на заказ</b>\n';
+  text += `Заявка: <code>${orderId}</code>\n`;
+  text += `Мастер: ${escapeTelegramHtml(masterName || 'Мастер')}\n`;
+  text += `Время отметки: ${escapeTelegramHtml(arrivedAt || '')}\n`;
+  text += `Дата и время заявки: ${escapeTelegramHtml(dateTime)}\n`;
+  text += `Адрес: ${escapeTelegramHtml(fullAddress || 'не указан')}\n`;
+  if (mapLink) text += `2ГИС: ${escapeTelegramHtml(mapLink)}\n`;
+  text += '\n💳 Пора сформировать счёт на оплату.';
+
+  urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: managerChatId,
+      text: text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true
+    })
+  });
+}
+
+function notifyManagerOrderDone(order, masterName, doneAt) {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const managerChatId = getManagerChatId();
+  if (!token || !managerChatId) return;
+
+  const orderId = escapeTelegramHtml(order['Номер заявки'] || '');
+  const text =
+    '✅ <b>Заявка завершена</b>\n' +
+    `Заявка: <code>${orderId}</code>\n` +
+    `Мастер: ${escapeTelegramHtml(masterName || 'Мастер')}\n` +
+    `Время: ${escapeTelegramHtml(doneAt || '')}`;
+
+  urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: managerChatId,
+      text: text,
+      parse_mode: 'HTML'
+    })
+  });
+}
+
+function notifyManagerOrderCancelled(order, masterName, cancelledAt, republishResult) {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const managerChatId = getManagerChatId();
+  if (!token || !managerChatId) return;
+
+  const orderId = escapeTelegramHtml(order['Номер заявки'] || '');
+  const city = escapeTelegramHtml(order['Город'] || '');
+  const republishOk = republishResult && republishResult.ok ? 'да' : 'нет';
+
+  const text =
+    '⚠️ <b>Мастер отменил заявку</b>\n' +
+    `Заявка: <code>${orderId}</code>\n` +
+    `Город: ${city}\n` +
+    `Мастер: ${escapeTelegramHtml(masterName || 'Мастер')}\n` +
+    `Время: ${escapeTelegramHtml(cancelledAt || '')}\n` +
+    `Повторно отправлена в группу: ${escapeTelegramHtml(republishOk)}`;
+
+  urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: managerChatId,
+      text: text,
+      parse_mode: 'HTML'
+    })
+  });
+}
+
+/* ---------- Callback parsing & dedupe ---------- */
+
+function makeCallbackData(action, orderId) {
+  const actionName = String(action || '').trim().toLowerCase();
+  const id = String(orderId || '').trim();
+  if (!actionName || !id) return '';
+  return `${actionName}|${id}`;
+}
+
+function makeTakeCallbackData(orderId) {
+  return makeCallbackData('take', orderId);
+}
+
+function parseCallbackActionData(data) {
   const raw = String(data || '').trim();
   if (!raw) return null;
 
-  if (raw.indexOf('take|') === 0) {
-    const id = String(raw.split('|')[1] || '').trim();
-    return id ? { orderId: id } : null;
+  const v2 = raw.match(/^(take|arrive|done|cancel)\|(.+)$/);
+  if (v2) {
+    const action = String(v2[1] || '').trim();
+    const id = String(v2[2] || '').trim();
+    return (action && id) ? { action: action, orderId: id } : null;
   }
 
   if (raw.indexOf('takev2|') === 0) {
     const id = String(raw.split('|')[1] || '').trim();
-    return id ? { orderId: id } : null;
+    return id ? { action: 'take', orderId: id } : null;
   }
 
   if (raw.indexOf('take_') === 0) {
     const id = String(raw.replace(/^take_/, '') || '').trim();
-    return id ? { orderId: id } : null;
+    return id ? { action: 'take', orderId: id } : null;
   }
 
   return null;
@@ -937,6 +1248,12 @@ function markMasterDmSent(orderId, masterId) {
   if (!id) return;
   const by = String(masterId || '').trim() || 'unknown';
   PROP.setProperty('ORDER_DM_SENT_' + id, by + '|' + formatDateTime(new Date()));
+}
+
+function clearMasterDmSent(orderId) {
+  const id = String(orderId || '').trim();
+  if (!id) return;
+  PROP.deleteProperty('ORDER_DM_SENT_' + id);
 }
 
 /* ---------- Telegram API ---------- */
@@ -1151,6 +1468,32 @@ function formatDateTimeForDisplay(dateValue, timeValue) {
   return 'не указаны';
 }
 
+function parseOrderDateTime(dateValue, timeValue) {
+  const d = formatDateForDisplay(dateValue);
+  const t = formatTimeForDisplay(timeValue);
+  if (!d) return null;
+
+  const dmY = d.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!dmY) return null;
+
+  const day = Number(dmY[1]);
+  const month = Number(dmY[2]) - 1;
+  const year = Number(dmY[3]);
+  let hour = 0;
+  let minute = 0;
+
+  if (t) {
+    const tm = t.match(/^(\d{2}):(\d{2})$/);
+    if (tm) {
+      hour = Number(tm[1]);
+      minute = Number(tm[2]);
+    }
+  }
+
+  const dt = new Date(year, month, day, hour, minute, 0, 0);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
 function normalizeCustomerName(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -1229,6 +1572,15 @@ function __setSpreadsheetId(spreadsheetId) {
   };
 }
 
+function __setManagerChatId(chatId) {
+  const id = String(chatId || '').trim();
+  if (!id) throw new Error('Передайте chatId');
+  PROP.setProperty('TELEGRAM_MANAGER_CHAT_ID', id);
+  const out = { ok: true, telegramManagerChatId: id, buildVersion: BUILD_VERSION };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
 function __checkConfiguration() {
   const out = {
     buildVersion: BUILD_VERSION,
@@ -1236,6 +1588,7 @@ function __checkConfiguration() {
     botTokenSet: !!String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim(),
     telegramChatId: String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim() || 'NOT_SET',
     telegramChatNovosibirsk: String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim() || 'NOT_SET',
+    telegramManagerChatId: getManagerChatId() || 'NOT_SET',
     storedWebAppExecUrl: String(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY) || '').trim() || 'NOT_SET',
     serviceExecUrl: getCurrentServiceExecUrl(),
     defaultWebAppExecUrl: DEFAULT_WEBAPP_EXEC_URL,
@@ -1339,6 +1692,137 @@ function __normalizeOrderDateTimeColumns() {
   }
 
   const out = { ok: true, updatedDate: updatedDate, updatedTime: updatedTime, buildVersion: BUILD_VERSION };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
+function sendReminders() {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  if (!token) {
+    const out = { ok: false, error: 'TELEGRAM_BOT_TOKEN not set', buildVersion: BUILD_VERSION };
+    Logger.log(JSON.stringify(out));
+    return out;
+  }
+
+  const sheet = getSheet();
+  const headerMap = getHeaderMap(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    const out = { ok: true, scanned: 0, sent24h: 0, sent2h: 0, buildVersion: BUILD_VERSION };
+    Logger.log(JSON.stringify(out));
+    return out;
+  }
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  const now = new Date();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const twoHoursMs = 2 * 60 * 60 * 1000;
+  let sent24h = 0;
+  let sent2h = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 2;
+
+    const status = String(getCellFromRowByHeader(row, headerMap, 'Статус') || '').toLowerCase().trim();
+    const orderId = String(getCellFromRowByHeader(row, headerMap, 'Номер заявки') || '').trim();
+    const masterId = String(getCellFromRowByHeader(row, headerMap, 'Master ID') || '').trim();
+    const dateValue = getCellFromRowByHeader(row, headerMap, 'Дата уборки');
+    const timeValue = getCellFromRowByHeader(row, headerMap, 'Время уборки');
+    const mark24h = String(getCellFromRowByHeader(row, headerMap, 'Напоминание 24ч') || '').trim();
+    const mark2h = String(getCellFromRowByHeader(row, headerMap, 'Напоминание 2ч') || '').trim();
+
+    if (!orderId || !masterId) continue;
+    if (status.indexOf('отмен') !== -1 || status.indexOf('заверш') !== -1) continue;
+    if (status.indexOf('взята') === -1 && status.indexOf('на объекте') === -1) continue;
+
+    const dt = parseOrderDateTime(dateValue, timeValue);
+    if (!dt) continue;
+
+    const diffMs = dt.getTime() - now.getTime();
+    if (diffMs <= 0) continue;
+
+    if (!mark24h && diffMs <= dayMs && diffMs > dayMs - (60 * 60 * 1000)) {
+      const text =
+        `⏰ <b>Напоминание за 24 часа</b>\n` +
+        `Заявка <code>${escapeTelegramHtml(orderId)}</code> завтра в ${escapeTelegramHtml(formatDateTimeForDisplay(dateValue, timeValue))}.`;
+
+      urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'post',
+        payload: JSON.stringify({
+          chat_id: masterId,
+          text: text,
+          parse_mode: 'HTML'
+        })
+      });
+
+      setCellByHeader(sheet, rowNum, headerMap, 'Напоминание 24ч', 'Отправлено ' + formatDateTime(now));
+      sent24h++;
+    }
+
+    if (!mark2h && diffMs <= twoHoursMs && diffMs > twoHoursMs - (30 * 60 * 1000)) {
+      const text =
+        `🚨 <b>Напоминание за 2 часа</b>\n` +
+        `Заявка <code>${escapeTelegramHtml(orderId)}</code> скоро начнется: ${escapeTelegramHtml(formatDateTimeForDisplay(dateValue, timeValue))}.`;
+
+      urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'post',
+        payload: JSON.stringify({
+          chat_id: masterId,
+          text: text,
+          parse_mode: 'HTML'
+        })
+      });
+
+      setCellByHeader(sheet, rowNum, headerMap, 'Напоминание 2ч', 'Отправлено ' + formatDateTime(now));
+      sent2h++;
+    }
+  }
+
+  const out = {
+    ok: true,
+    scanned: rows.length,
+    sent24h: sent24h,
+    sent2h: sent2h,
+    buildVersion: BUILD_VERSION
+  };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
+function __installReminderTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'sendReminders') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+
+  const trigger = ScriptApp.newTrigger('sendReminders')
+    .timeBased()
+    .everyMinutes(15)
+    .create();
+
+  const out = {
+    ok: true,
+    triggerId: trigger && trigger.getUniqueId ? trigger.getUniqueId() : '',
+    buildVersion: BUILD_VERSION
+  };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
+function __removeReminderTrigger() {
+  let removed = 0;
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'sendReminders') {
+      ScriptApp.deleteTrigger(triggers[i]);
+      removed++;
+    }
+  }
+
+  const out = { ok: true, removed: removed, buildVersion: BUILD_VERSION };
   Logger.log(JSON.stringify(out));
   return out;
 }
