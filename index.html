@@ -1328,12 +1328,17 @@
     </div>
 
     <script>
-        const FRONTEND_VERSION = '2026-02-18-web-v1';
+        const FRONTEND_VERSION = '2026-02-18-web-v2';
 
         const CONFIG = {
             TELEGRAM_BOT_TOKEN: '',
             TELEGRAM_CHAT_ID: '',
-            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbyJhU9LoZbVCCtEPQCK4u3_VlQS0qBv9fcjLUHXgK0aNFSFcxLXqgIHa8dJ_i7eB4Ef/exec',
+            GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxNNiA-5F13rR2X3yr16Uv0ao1UTVRpg4gS86a63AY/exec',
+            GOOGLE_SCRIPT_URLS: [
+                'https://script.google.com/macros/s/AKfycbxNNiA-5F13rR2X3yr16Uv0ao1UTVRpg4gS86a63AY/exec',
+                'https://script.google.com/macros/s/AKfycbyJhU9LoZbVCCtEPQCK4u3_VlQS0qBv9fcjLUHXgK0aNFSFcxLXqgIHa8dJ_i7eB4Ef/exec',
+                'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec'
+            ],
             CITY_TELEGRAM_CHATS: {
                 'Новосибирск': '-1003875039787'
             },
@@ -1364,6 +1369,7 @@
         let calculatedPrice = 0;
         let telegramMessageId = null;
         let isSubmittingOrder = false;
+        let ACTIVE_BACKEND_URL = '';
 
         const managerNameInput = document.getElementById('managerName');
         const cleaningTypeOptions = document.querySelectorAll('#cleaningType .radio-option');
@@ -1462,6 +1468,45 @@
             footerMeta.textContent = `© ${year} Система расчета и оформления заявок. Версия: ${FRONTEND_VERSION}. Для внутреннего использования менеджерами.`;
         }
 
+        function normalizeBackendUrl(url) {
+            return String(url || '').trim();
+        }
+
+        function getBackendParamUrl() {
+            try {
+                const params = new URLSearchParams(window.location.search || '');
+                return normalizeBackendUrl(params.get('backend'));
+            } catch (error) {
+                return '';
+            }
+        }
+
+        function setActiveBackendUrl(url) {
+            const normalized = normalizeBackendUrl(url);
+            if (!normalized) return;
+            ACTIVE_BACKEND_URL = normalized;
+            try {
+                localStorage.setItem('apex_backend_url', normalized);
+            } catch (error) {}
+        }
+
+        function getBackendCandidates() {
+            const out = [];
+            const pushUnique = (value) => {
+                const normalized = normalizeBackendUrl(value);
+                if (!normalized) return;
+                if (out.indexOf(normalized) === -1) out.push(normalized);
+            };
+
+            pushUnique(getBackendParamUrl());
+            try { pushUnique(localStorage.getItem('apex_backend_url')); } catch (error) {}
+            pushUnique(ACTIVE_BACKEND_URL);
+            pushUnique(CONFIG.GOOGLE_SCRIPT_URL);
+            (CONFIG.GOOGLE_SCRIPT_URLS || []).forEach(pushUnique);
+
+            return out;
+        }
+
         function setupEventListeners() {
             cleaningTypeOptions.forEach(option => {
                 option.addEventListener('click', function() {
@@ -1533,48 +1578,70 @@
         }
 
         async function postToBackend(payload) {
-            const url = String(CONFIG.GOOGLE_SCRIPT_URL || '').trim();
-            if (!url) {
+            const urls = getBackendCandidates();
+            if (!urls.length) {
                 return { success: false, error: 'Не задан URL backend (GOOGLE_SCRIPT_URL).' };
             }
 
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                    body: payload.toString()
-                });
+            let lastError = null;
 
-                const text = await response.text();
-                let json = null;
+            for (let i = 0; i < urls.length; i++) {
+                const url = urls[i];
                 try {
-                    json = JSON.parse(text);
-                } catch (err) {
-                    return {
-                        success: false,
-                        status: response.status,
-                        error: 'Сервер вернул не JSON (проверьте доступ Web App: "Кто имеет доступ: Все").',
-                        raw: text ? text.slice(0, 300) : ''
-                    };
-                }
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                        body: payload.toString()
+                    });
 
-                if (!response.ok || !json || json.ok === false) {
-                    return {
-                        success: false,
-                        status: response.status,
-                        response: json,
-                        error: (json && (json.error || json.note)) || `HTTP ${response.status}`
-                    };
-                }
+                    const text = await response.text();
+                    let json = null;
+                    try {
+                        json = JSON.parse(text);
+                    } catch (err) {
+                        lastError = {
+                            success: false,
+                            status: response.status,
+                            error: 'Сервер вернул не JSON (проверьте доступ Web App: "Кто имеет доступ: Все").',
+                            raw: text ? text.slice(0, 300) : ''
+                        };
+                        continue;
+                    }
 
-                return { success: true, status: response.status, response: json };
-            } catch (error) {
-                const msg = String(error && error.message || '');
-                const hint = msg.indexOf('Load failed') !== -1
-                    ? 'Load failed. Обычно это значит, что Web App URL недоступен или деплой не публичный ("Кто имеет доступ: Все").'
-                    : msg;
-                return { success: false, error: hint };
+                    if (!response.ok || !json || json.ok === false) {
+                        const errText = (json && (json.error || json.note)) || `HTTP ${response.status}`;
+                        const isUnknownAction = String(errText).toLowerCase().indexOf('unknown action') !== -1;
+
+                        lastError = {
+                            success: false,
+                            status: response.status,
+                            response: json,
+                            error: errText
+                        };
+
+                        if (isUnknownAction) {
+                            continue;
+                        }
+
+                        continue;
+                    }
+
+                    setActiveBackendUrl(url);
+                    return { success: true, status: response.status, response: json, backendUrl: url };
+                } catch (error) {
+                    const msg = String(error && error.message || '');
+                    const hint = msg.indexOf('Load failed') !== -1
+                        ? 'Load failed. Обычно это значит, что Web App URL недоступен или деплой не публичный ("Кто имеет доступ: Все").'
+                        : msg;
+                    lastError = { success: false, error: hint };
+                }
             }
+
+            if (lastError) {
+                return lastError;
+            }
+
+            return { success: false, error: 'Не удалось связаться с backend.' };
         }
 
         async function checkTelegramBot() {
@@ -1585,7 +1652,8 @@
             if (result.success) {
                 const data = result.response || {};
                 const name = data.bot && data.bot.username ? ` @${data.bot.username}` : '';
-                showStatus(`✅ Telegram бот подключен${name}. Чат выбирается автоматически по городу.`, 'success');
+                const backendTag = result.backendUrl ? ` (backend: ${result.backendUrl})` : '';
+                showStatus(`✅ Telegram бот подключен${name}. Чат выбирается автоматически по городу.${backendTag}`, 'success');
                 return;
             }
 

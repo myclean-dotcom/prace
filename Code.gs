@@ -7,6 +7,7 @@ const BUILD_VERSION = '2026-02-18-clean-v7';
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
 const DEFAULT_WEBAPP_EXEC_URL = '';
+const WEBHOOK_LAST_SYNC_TS_PROPERTY = 'WEBHOOK_LAST_SYNC_TS';
 
 const REQUIRED_HEADERS = [
   'Номер заявки',
@@ -450,6 +451,10 @@ function createOrUpdateOrder(payload, action) {
   const rowData = buildOrderRowData(order, 'Опубликована');
   appendOrderRow(sheet, rowData);
 
+  // Самовосстановление: перед отправкой в группу убеждаемся,
+  // что webhook у Telegram направлен на текущий /exec этого деплоя.
+  ensureWebhookBoundToCurrentExec(false);
+
   const publishResult = sendOrderToGroup(order, payload.telegramChannel);
   if (!publishResult.ok) {
     const note = publishResult.reason === 'token_not_set'
@@ -476,6 +481,52 @@ function createOrUpdateOrder(payload, action) {
     messageId: publishResult.messageId,
     buildVersion: BUILD_VERSION
   }, 200);
+}
+
+function ensureWebhookBoundToCurrentExec(force) {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  if (!token) return { ok: false, reason: 'token_not_set' };
+
+  const currentExec = normalizeWebhookUrlToExec(getCurrentServiceExecUrl()) || resolveWebhookExecUrl('');
+  if (!currentExec) return { ok: false, reason: 'exec_url_not_set' };
+
+  const nowTs = Date.now();
+  const lastTs = Number(PROP.getProperty(WEBHOOK_LAST_SYNC_TS_PROPERTY) || '0');
+  const tooSoon = !force && lastTs > 0 && (nowTs - lastTs) < 3 * 60 * 1000;
+  if (tooSoon) {
+    return { ok: true, skipped: true, reason: 'recently_checked', targetUrl: currentExec };
+  }
+
+  const info = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
+  const currentWebhook = info && info.result && info.result.url
+    ? normalizeWebhookUrlToExec(info.result.url)
+    : '';
+
+  const needsSet = currentWebhook !== currentExec;
+  if (needsSet) {
+    const setResp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
+      method: 'post',
+      payload: JSON.stringify({
+        url: currentExec,
+        allowed_updates: ['message', 'edited_message', 'callback_query']
+      })
+    });
+
+    if (!setResp || setResp.ok !== true) {
+      Logger.log('ensureWebhookBoundToCurrentExec setWebhook failed: ' + JSON.stringify(setResp || null));
+      return { ok: false, reason: 'set_webhook_failed', targetUrl: currentExec, telegram: setResp || null };
+    }
+  }
+
+  PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, currentExec);
+  PROP.setProperty(WEBHOOK_LAST_SYNC_TS_PROPERTY, String(nowTs));
+
+  return {
+    ok: true,
+    changed: needsSet,
+    targetUrl: currentExec,
+    webhookUrl: currentWebhook || ''
+  };
 }
 
 function buildOrderRowData(order, status) {
@@ -2215,6 +2266,7 @@ function __setWebhookProd() {
   });
 
   PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, url);
+  PROP.setProperty(WEBHOOK_LAST_SYNC_TS_PROPERTY, String(Date.now()));
 
   const out = {
     ok: true,
