@@ -4,8 +4,8 @@
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
-const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
-const BUILD_VERSION = '2026-02-17-stable-take-flow-v11';
+const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbxFjX65pjrnrM-nL35eJzJL5YWPzhmkVD-nIkRIJ6I/exec';
+const BUILD_VERSION = '2026-02-18-stable-take-flow-v12';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
