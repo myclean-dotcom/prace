@@ -6,7 +6,7 @@ const PROP = PropertiesService.getScriptProperties();
 const BUILD_VERSION = '2026-02-18-clean-v5';
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
-const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyJhU9LoZbVCCtEPQCK4u3_VlQS0qBv9fcjLUHXgK0aNFSFcxLXqgIHa8dJ_i7eB4Ef/exec';
+const DEFAULT_WEBAPP_EXEC_URL = '';
 
 const REQUIRED_HEADERS = [
   'Номер заявки',
@@ -1855,14 +1855,14 @@ function resolveWebhookExecUrl(preferredUrl) {
   const preferred = normalizeWebhookUrlToExec(preferredUrl);
   if (preferred) return preferred;
 
+  const service = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
+  if (service) return service;
+
   const stored = normalizeWebhookUrlToExec(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY));
   if (stored) return stored;
 
   const def = normalizeWebhookUrlToExec(DEFAULT_WEBAPP_EXEC_URL);
   if (def) return def;
-
-  const service = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
-  if (service) return service;
 
   return '';
 }
@@ -2143,7 +2143,7 @@ function __setWebhookProd() {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
 
-  const url = resolveWebhookExecUrl('');
+  const url = normalizeWebhookUrlToExec(getCurrentServiceExecUrl()) || resolveWebhookExecUrl('');
   if (!url) throw new Error('Не удалось определить URL Web App');
 
   const del = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
@@ -2181,7 +2181,6 @@ function __setWebhookProd() {
 function __setWebAppExecUrl(url) {
   const normalized =
     normalizeWebhookUrlToExec(url) ||
-    normalizeWebhookUrlToExec(DEFAULT_WEBAPP_EXEC_URL) ||
     normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
 
   if (!normalized) {
