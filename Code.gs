@@ -4,8 +4,8 @@
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
-const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbxFjX65pjrnrM-nL35eJzJL5YWPzhmkVD-nIkRIJ6I/exec';
-const BUILD_VERSION = '2026-02-18-stable-take-flow-v12';
+const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
+const BUILD_VERSION = '2026-02-18-stable-take-flow-v13';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
@@ -61,9 +61,21 @@ function doPost(e) {
 
     body = normalizeIncomingBody(body);
 
+    if (body && body.action !== undefined && body.action !== null) {
+      body.action = String(body.action).trim().toLowerCase();
+    }
+
     // Последний fallback: иногда нужные данные остаются только в parameters
     if ((!body.action && !body.orderId) && Object.keys(flatParameters).length) {
       body = normalizeIncomingBody(flatParameters);
+      if (body && body.action !== undefined && body.action !== null) {
+        body.action = String(body.action).trim().toLowerCase();
+      }
+    }
+
+    // Если action не пришел, но поля заявки есть — считаем это созданием.
+    if ((!body.action || body.action === '') && looksLikeCreateOrderPayload(body)) {
+      body.action = 'create';
     }
 
     // Логируем вход для отладки (посмотрите Execution logs)
@@ -189,6 +201,20 @@ function normalizeIncomingBody(body) {
   }
 
   return (current && typeof current === 'object') ? current : {};
+}
+
+function looksLikeCreateOrderPayload(body) {
+  if (!body || typeof body !== 'object') return false;
+  const b = body;
+  return !!(
+    b.customerCity ||
+    b.customerAddress ||
+    b.customerPhone ||
+    b.cleaningType ||
+    b.orderDate ||
+    b.orderTime ||
+    b.manager
+  );
 }
 
 /* ---------- Создание/обновление заявки ---------- */
@@ -1671,13 +1697,13 @@ function getTelegramAllowedUpdates() {
 function resolveWebhookExecUrl(preferredUrl) {
   let url = String(preferredUrl || '').trim();
   if (!url) {
-    url = getCurrentServiceExecUrl();
-  }
-  if (!url) {
     url = String(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY) || '').trim();
   }
   if (!url) {
     url = DEFAULT_WEBAPP_EXEC_URL;
+  }
+  if (!url) {
+    url = getCurrentServiceExecUrl();
   }
 
   return normalizeWebhookUrlToExec(url);
@@ -1792,8 +1818,8 @@ function __probeWebhookDoPostVersion(targetUrl) {
   try {
     const resp = UrlFetchApp.fetch(url, {
       method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify({ action: 'probe_version' }),
+      contentType: 'application/x-www-form-urlencoded; charset=UTF-8',
+      payload: 'action=probe_version',
       muteHttpExceptions: true,
       followRedirects: true
     });
@@ -1820,66 +1846,37 @@ function __hardResetBotRouting() {
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан');
 
   const serviceUrl = getCurrentServiceExecUrl();
-  const fallbackUrl = normalizeWebhookUrlToExec(DEFAULT_WEBAPP_EXEC_URL);
-  const primaryUrl = serviceUrl || fallbackUrl;
-  if (!primaryUrl) throw new Error('Не удалось определить URL Web App');
+  const targetUrl = resolveWebhookExecUrl(DEFAULT_WEBAPP_EXEC_URL);
+  if (!targetUrl) throw new Error('Не удалось определить URL Web App');
 
-  function applyWebhook(url) {
-    const delResp = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
-      method: 'post',
-      payload: JSON.stringify({ drop_pending_updates: true })
-    });
+  const deleteWebhook = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
+    method: 'post',
+    payload: JSON.stringify({ drop_pending_updates: true })
+  });
 
-    const setResp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
-      method: 'post',
-      payload: JSON.stringify({
-        url: url,
-        allowed_updates: getTelegramAllowedUpdates()
-      })
-    });
+  const setWebhook = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
+    method: 'post',
+    payload: JSON.stringify({
+      url: targetUrl,
+      allowed_updates: getTelegramAllowedUpdates()
+    })
+  });
 
-    const infoResp = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, {
-      method: 'get'
-    });
-    const probeDoPost = __probeWebhookDoPostVersion(url);
-
-    return {
-      targetUrl: url,
-      deleteWebhook: delResp,
-      setWebhook: setResp,
-      webhookInfo: infoResp,
-      probeDoPost: probeDoPost
-    };
-  }
-
-  let routing = applyWebhook(primaryUrl);
-  let switchedToServiceUrl = false;
-
-  const probeBuild = routing.probeDoPost && routing.probeDoPost.bodyJson
-    ? String(routing.probeDoPost.bodyJson.buildVersion || '')
-    : '';
-  const mismatch = !probeBuild || probeBuild !== BUILD_VERSION;
-
-  if (mismatch && serviceUrl && serviceUrl !== routing.targetUrl) {
-    routing = applyWebhook(serviceUrl);
-    switchedToServiceUrl = true;
-  } else if (mismatch && fallbackUrl && fallbackUrl !== routing.targetUrl) {
-    routing = applyWebhook(fallbackUrl);
-  }
-
-  PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, String(routing.targetUrl || '').trim());
+  const webhookInfo = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, {
+    method: 'get'
+  });
+  const probeDoPost = __probeWebhookDoPostVersion(targetUrl);
+  PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, String(targetUrl).trim());
 
   const out = {
     buildVersion: BUILD_VERSION,
-    primaryUrl: primaryUrl,
+    targetUrl: targetUrl,
+    defaultWebAppExecUrl: DEFAULT_WEBAPP_EXEC_URL,
     serviceUrl: serviceUrl,
-    fallbackUrl: fallbackUrl,
-    switchedToServiceUrl: switchedToServiceUrl,
-    targetUrl: routing.targetUrl,
-    deleteWebhook: routing.deleteWebhook,
-    setWebhook: routing.setWebhook,
-    webhookInfo: routing.webhookInfo,
-    probeDoPost: routing.probeDoPost
+    deleteWebhook: deleteWebhook,
+    setWebhook: setWebhook,
+    webhookInfo: webhookInfo,
+    probeDoPost: probeDoPost
   };
   Logger.log(JSON.stringify(out));
   return out;
