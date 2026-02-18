@@ -3,7 +3,7 @@
 
 const PROP = PropertiesService.getScriptProperties();
 
-const BUILD_VERSION = '2026-02-18-clean-v4';
+const BUILD_VERSION = '2026-02-18-clean-v5';
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
 const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyJhU9LoZbVCCtEPQCK4u3_VlQS0qBv9fcjLUHXgK0aNFSFcxLXqgIHa8dJ_i7eB4Ef/exec';
@@ -707,6 +707,11 @@ function handleTelegramUpdate(body) {
           });
 
           if (dm1 && dm1.ok === true) {
+            const dmMessageIds = [];
+            if (dm1.result && dm1.result.message_id !== undefined && dm1.result.message_id !== null) {
+              dmMessageIds.push(String(dm1.result.message_id));
+            }
+
             const clientMessage = buildClientReadyMessage(updatedOrder);
             const shareUrl = buildTelegramShareUrl(clientMessage);
             const dm2Payload = {
@@ -722,12 +727,15 @@ function handleTelegramUpdate(body) {
               };
             }
 
-            urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+            const dm2 = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
               method: 'post',
               payload: JSON.stringify(dm2Payload)
             });
+            if (dm2 && dm2.ok === true && dm2.result && dm2.result.message_id !== undefined && dm2.result.message_id !== null) {
+              dmMessageIds.push(String(dm2.result.message_id));
+            }
 
-            markMasterDmSent(orderId, masterId);
+            markMasterDmSent(orderId, masterId, dmMessageIds);
           } else {
             Logger.log('DM send failed for order ' + orderId + ': ' + JSON.stringify(dm1));
           }
@@ -794,6 +802,7 @@ function handleTelegramUpdate(body) {
 
         const cancelledAt = formatDateTime(new Date());
         updateOrderCancelledByRow(rowNum, masterName, cancelledAt);
+        deleteMasterDmMessages(token, orderId);
         clearMasterDmSent(orderId);
         answerCallback(token, callbackId, '⏳ Отмена принята, возвращаю заявку в группу');
         const republish = republishOrderToGroupByRow(rowNum);
@@ -1075,7 +1084,9 @@ function generateFullText(order) {
   const area = escapeTelegramHtml(order['Площадь (м²)'] || 'не указана');
   const dateTime = escapeTelegramHtml(formatDateTimeForDisplay(order['Дата уборки'], order['Время уборки']));
   const clientName = escapeTelegramHtml(order['Имя клиента'] || 'не указано');
-  const clientPhone = escapeTelegramHtml(order['Телефон клиента'] || 'не указан');
+  const rawClientPhone = String(order['Телефон клиента'] || '').trim();
+  const clientPhone = escapeTelegramHtml(rawClientPhone || 'не указан');
+  const phoneLink = buildPhoneLink(rawClientPhone);
   const orderTotal = escapeTelegramHtml(order['Сумма заказа'] || '0');
   const masterPay = escapeTelegramHtml(order['Зарплата мастерам'] || '0');
 
@@ -1105,7 +1116,11 @@ function generateFullText(order) {
 
   text += '<b>👤 ДАННЫЕ КЛИЕНТА</b>\n';
   text += `Имя: ${clientName}\n`;
-  text += `Телефон: <code>${clientPhone}</code>\n\n`;
+  text += `Телефон: <code>${clientPhone}</code>\n`;
+  if (phoneLink) {
+    text += `Позвонить: <a href="${escapeTelegramHtml(phoneLink)}">${clientPhone}</a>\n`;
+  }
+  text += '\n';
 
   text += '<b>🧰 ЧТО ВЗЯТЬ С СОБОЙ</b>\n';
   text += `Оборудование: ${escapeTelegramHtml(equipment)}\n`;
@@ -1121,11 +1136,11 @@ function generateFullText(order) {
   text += `Ваша оплата: ${masterPay} руб\n\n`;
 
   text += '<b>✅ ЧТО НУЖНО СДЕЛАТЬ</b>\n';
-  text += '1️⃣ Откройте следующее сообщение и отправьте его клиенту.\n';
-  text += '2️⃣ Подготовьтесь ответственно к заявке: заранее возьмите нужное оборудование, спланируйте, как добраться, и приезжайте без опозданий.\n';
-  text += '3️⃣ Отправьте фотографии химии и оборудования, когда прибудете на объект.\n';
-  text += '4️⃣ После работы отправьте фотографии выполненных работ.\n';
-  text += '5️⃣ Отправьте фото подписанного акта выполненных работ.\n';
+  text += '1️⃣ Откройте следующее сообщение и отправьте его клиенту.\n\n';
+  text += '2️⃣ Подготовьтесь ответственно к заявке: заранее возьмите нужное оборудование, спланируйте, как добраться, и приезжайте без опозданий.\n\n';
+  text += '3️⃣ Отправьте фотографии химии и оборудования, когда прибудете на объект.\n\n';
+  text += '4️⃣ После работы отправьте фотографии выполненных работ.\n\n';
+  text += '5️⃣ Отправьте фото подписанного акта выполненных работ.\n\n';
   text += '6️⃣ Подтвердите оплату от клиента.';
 
   return text;
@@ -1163,13 +1178,64 @@ function build2gisSearchLink(city, fullAddress) {
     .filter(Boolean)
     .join(', ');
   if (!query) return '';
-  return 'https://2gis.ru/search/' + encodeURIComponent(query);
+  const longUrl = 'https://2gis.ru/search/' + encodeURIComponent(query);
+  return shortenUrlWithCache(longUrl);
+}
+
+function shortenUrlWithCache(url) {
+  const longUrl = String(url || '').trim();
+  if (!longUrl) return '';
+
+  const cache = CacheService.getScriptCache();
+  const key = 'short_' + Utilities.base64EncodeWebSafe(longUrl).slice(0, 180);
+  const cached = cache.get(key);
+  if (cached) return cached;
+
+  const shortUrl = tryShortenUrl(longUrl) || longUrl;
+  cache.put(key, shortUrl, 6 * 60 * 60);
+  return shortUrl;
+}
+
+function tryShortenUrl(url) {
+  const longUrl = String(url || '').trim();
+  if (!longUrl) return '';
+
+  try {
+    const resp = UrlFetchApp.fetch('https://tinyurl.com/api-create.php?url=' + encodeURIComponent(longUrl), {
+      method: 'get',
+      muteHttpExceptions: true,
+      followRedirects: true
+    });
+    const code = resp.getResponseCode();
+    const text = String(resp.getContentText() || '').trim();
+    if (code >= 200 && code < 300 && /^https?:\/\//i.test(text)) {
+      return text;
+    }
+  } catch (err) {}
+
+  return '';
 }
 
 function buildTelegramShareUrl(messageText) {
   const text = String(messageText || '').trim();
   if (!text) return '';
   return 'https://t.me/share/url?url=&text=' + encodeURIComponent(text);
+}
+
+function buildPhoneLink(rawPhone) {
+  const source = String(rawPhone || '').trim();
+  if (!source) return '';
+
+  let normalized = source.replace(/[^\d+]/g, '');
+  if (normalized.indexOf('+') > 0) {
+    normalized = normalized.replace(/\+/g, '');
+  }
+  if (normalized && normalized[0] !== '+' && /^\d+$/.test(normalized)) {
+    normalized = '+' + normalized;
+  }
+
+  if (!/^\+?\d{6,20}$/.test(normalized)) return '';
+  return 'tel:' + normalized;
 }
 
 function getManagerChatId() {
@@ -1452,17 +1518,54 @@ function isMasterDmAlreadySent(orderId) {
   return String(PROP.getProperty(key) || '').trim() !== '';
 }
 
-function markMasterDmSent(orderId, masterId) {
+function markMasterDmSent(orderId, masterId, messageIds) {
   const id = String(orderId || '').trim();
   if (!id) return;
   const by = String(masterId || '').trim() || 'unknown';
+  const msgIds = Array.isArray(messageIds)
+    ? messageIds.map(function(v) { return String(v || '').trim(); }).filter(Boolean)
+    : [];
+
   PROP.setProperty('ORDER_DM_SENT_' + id, by + '|' + formatDateTime(new Date()));
+  PROP.setProperty('ORDER_DM_META_' + id, JSON.stringify({
+    chatId: by,
+    messageIds: msgIds,
+    ts: formatDateTime(new Date())
+  }));
 }
 
 function clearMasterDmSent(orderId) {
   const id = String(orderId || '').trim();
   if (!id) return;
   PROP.deleteProperty('ORDER_DM_SENT_' + id);
+  PROP.deleteProperty('ORDER_DM_META_' + id);
+}
+
+function deleteMasterDmMessages(token, orderId) {
+  const id = String(orderId || '').trim();
+  if (!id) return;
+
+  const rawMeta = String(PROP.getProperty('ORDER_DM_META_' + id) || '').trim();
+  if (!rawMeta) return;
+
+  const meta = tryParseJson(rawMeta);
+  if (!meta || typeof meta !== 'object') return;
+
+  const chatId = String(meta.chatId || '').trim();
+  const messageIds = Array.isArray(meta.messageIds) ? meta.messageIds : [];
+  if (!chatId || !messageIds.length) return;
+
+  for (let i = 0; i < messageIds.length; i++) {
+    const msg = String(messageIds[i] || '').trim();
+    if (!msg) continue;
+    urlFetchJson(`https://api.telegram.org/bot${token}/deleteMessage`, {
+      method: 'post',
+      payload: JSON.stringify({
+        chat_id: chatId,
+        message_id: Number(msg)
+      })
+    });
+  }
 }
 
 /* ---------- Telegram API ---------- */
