@@ -1200,16 +1200,16 @@ function resolveWebhookExecUrl(preferredUrl) {
   const preferred = normalizeWebhookUrlToExec(preferredUrl);
   if (preferred) return preferred;
 
-  const service = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
-  if (service) return service;
-
   const stored = normalizeWebhookUrlToExec(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY));
   if (stored) return stored;
 
   const def = normalizeWebhookUrlToExec(DEFAULT_WEBAPP_EXEC_URL);
   if (def) return def;
 
-  return normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
+  const service = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
+  if (service) return service;
+
+  return '';
 }
 
 /* ---------- Diagnostics & setup ---------- */
@@ -1238,7 +1238,8 @@ function __checkConfiguration() {
     telegramChatNovosibirsk: String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim() || 'NOT_SET',
     storedWebAppExecUrl: String(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY) || '').trim() || 'NOT_SET',
     serviceExecUrl: getCurrentServiceExecUrl(),
-    defaultWebAppExecUrl: DEFAULT_WEBAPP_EXEC_URL
+    defaultWebAppExecUrl: DEFAULT_WEBAPP_EXEC_URL,
+    resolvedWebhookExecUrl: resolveWebhookExecUrl('')
   };
 
   Logger.log(JSON.stringify(out));
@@ -1377,6 +1378,20 @@ function __setWebhookProd() {
     webhookInfo: info
   };
 
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
+function __setWebAppExecUrl(url) {
+  const normalized = normalizeWebhookUrlToExec(url);
+  if (!normalized) throw new Error('Передайте корректный URL Web App (/exec)');
+  PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, normalized);
+  const out = {
+    ok: true,
+    storedWebAppExecUrl: normalized,
+    resolvedWebhookExecUrl: resolveWebhookExecUrl(''),
+    buildVersion: BUILD_VERSION
+  };
   Logger.log(JSON.stringify(out));
   return out;
 }
