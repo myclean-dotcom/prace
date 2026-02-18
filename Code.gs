@@ -3,7 +3,7 @@
 
 const PROP = PropertiesService.getScriptProperties();
 
-const BUILD_VERSION = '2026-02-18-clean-v2';
+const BUILD_VERSION = '2026-02-18-clean-v3';
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
 const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyJhU9LoZbVCCtEPQCK4u3_VlQS0qBv9fcjLUHXgK0aNFSFcxLXqgIHa8dJ_i7eB4Ef/exec';
@@ -32,6 +32,8 @@ const REQUIRED_HEADERS = [
   'Master ID',
   'Master Name',
   'Дата принятия',
+  'Дата прибытия',
+  'Дата завершения',
   'Напоминание 24ч',
   'Напоминание 2ч',
   'Статус выполнения'
@@ -501,6 +503,8 @@ function buildOrderRowData(order, status) {
     'Master ID': '',
     'Master Name': '',
     'Дата принятия': '',
+    'Дата прибытия': '',
+    'Дата завершения': '',
     'Напоминание 24ч': '',
     'Напоминание 2ч': '',
     'Статус выполнения': ''
@@ -761,6 +765,7 @@ function handleTelegramUpdate(body) {
         const updatedOrder = getOrderByRow(rowNum);
 
         notifyManagerNeedInvoice(updatedOrder, masterName, arrivedAt);
+        updateMasterActionMessageAfterArrive(token, cbChatId, cbMessageId, orderId);
         answerCallback(token, callbackId, '✅ Отметка о прибытии сохранена');
         return jsonResponse({ ok: true, orderId: orderId, action: 'arrive', buildVersion: BUILD_VERSION }, 200);
       }
@@ -775,13 +780,14 @@ function handleTelegramUpdate(body) {
         updateOrderDoneByRow(rowNum, doneAt);
         const updatedOrder = getOrderByRow(rowNum);
         notifyManagerOrderDone(updatedOrder, masterName, doneAt);
+        clearMasterActionMessage(token, cbChatId, cbMessageId);
 
         answerCallback(token, callbackId, '✅ Заявка отмечена как завершенная');
         return jsonResponse({ ok: true, orderId: orderId, action: 'done', buildVersion: BUILD_VERSION }, 200);
       }
 
       if (parsed.action === 'cancel') {
-        if (currentMasterId && currentMasterId !== masterId) {
+        if (!currentMasterId || currentMasterId !== masterId) {
           answerCallback(token, callbackId, '❌ Только назначенный мастер может отменить заявку');
           return jsonResponse({ ok: true, denied: true, action: 'cancel', buildVersion: BUILD_VERSION }, 200);
         }
@@ -791,6 +797,7 @@ function handleTelegramUpdate(body) {
         clearMasterDmSent(orderId);
         const republish = republishOrderToGroupByRow(rowNum);
         const updatedOrder = getOrderByRow(rowNum);
+        deleteMasterActionMessage(token, cbChatId, cbMessageId);
 
         if (republish.ok) {
           answerCallback(token, callbackId, '🔁 Заявка отменена и снова отправлена в группу');
@@ -852,6 +859,8 @@ function updateOrderTakenByRow(rowNum, masterId, masterName, takenAt) {
   setCellByHeader(sheet, rowNum, map, 'Master ID', String(masterId || '').trim());
   setCellByHeader(sheet, rowNum, map, 'Master Name', String(masterName || '').trim());
   setCellByHeader(sheet, rowNum, map, 'Дата принятия', String(takenAt || '').trim());
+  setCellByHeader(sheet, rowNum, map, 'Дата прибытия', '');
+  setCellByHeader(sheet, rowNum, map, 'Дата завершения', '');
   setCellByHeader(sheet, rowNum, map, 'Напоминание 24ч', '');
   setCellByHeader(sheet, rowNum, map, 'Напоминание 2ч', '');
   setCellByHeader(sheet, rowNum, map, 'Статус выполнения', '');
@@ -873,6 +882,7 @@ function updateOrderArrivedByRow(rowNum, arrivedAt) {
   const sheet = getSheet();
   const map = getHeaderMap(sheet);
   setCellByHeader(sheet, rowNum, map, 'Статус', 'На объекте');
+  setCellByHeader(sheet, rowNum, map, 'Дата прибытия', String(arrivedAt || '').trim());
   setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Прибыл на объект: ' + String(arrivedAt || '').trim());
 }
 
@@ -880,6 +890,7 @@ function updateOrderDoneByRow(rowNum, doneAt) {
   const sheet = getSheet();
   const map = getHeaderMap(sheet);
   setCellByHeader(sheet, rowNum, map, 'Статус', 'Завершена');
+  setCellByHeader(sheet, rowNum, map, 'Дата завершения', String(doneAt || '').trim());
   setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Работы завершены: ' + String(doneAt || '').trim());
 }
 
@@ -893,6 +904,8 @@ function updateOrderCancelledByRow(rowNum, masterName, cancelledAt) {
   setCellByHeader(sheet, rowNum, map, 'Master ID', '');
   setCellByHeader(sheet, rowNum, map, 'Master Name', '');
   setCellByHeader(sheet, rowNum, map, 'Дата принятия', '');
+  setCellByHeader(sheet, rowNum, map, 'Дата прибытия', '');
+  setCellByHeader(sheet, rowNum, map, 'Дата завершения', '');
   setCellByHeader(sheet, rowNum, map, 'Напоминание 24ч', '');
   setCellByHeader(sheet, rowNum, map, 'Напоминание 2ч', '');
   setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Отменена мастером ' + cleanMasterName + ': ' + cleanCancelledAt);
@@ -920,6 +933,55 @@ function buildMasterActionKeyboard(orderId) {
       [{ text: '❌ ОТМЕНИТЬ ЗАЯВКУ', callback_data: makeCallbackData('cancel', orderId) }]
     ]
   };
+}
+
+function updateMasterActionMessageAfterArrive(token, chatId, messageId, orderId) {
+  const chat = String(chatId || '').trim();
+  const msg = String(messageId || '').trim();
+  if (!chat || !msg) return;
+
+  urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: chat,
+      message_id: Number(msg),
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '✅ ЗАВЕРШИЛ ЗАЯВКУ', callback_data: makeCallbackData('done', orderId) }],
+          [{ text: '❌ ОТМЕНИТЬ ЗАЯВКУ', callback_data: makeCallbackData('cancel', orderId) }]
+        ]
+      }
+    })
+  });
+}
+
+function clearMasterActionMessage(token, chatId, messageId) {
+  const chat = String(chatId || '').trim();
+  const msg = String(messageId || '').trim();
+  if (!chat || !msg) return;
+
+  urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: chat,
+      message_id: Number(msg),
+      reply_markup: { inline_keyboard: [] }
+    })
+  });
+}
+
+function deleteMasterActionMessage(token, chatId, messageId) {
+  const chat = String(chatId || '').trim();
+  const msg = String(messageId || '').trim();
+  if (!chat || !msg) return;
+
+  urlFetchJson(`https://api.telegram.org/bot${token}/deleteMessage`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: chat,
+      message_id: Number(msg)
+    })
+  });
 }
 
 function appendPhotoByMasterId(masterId, fileId, caption) {
@@ -983,7 +1045,7 @@ function generateBriefText(order) {
   text += `📍 Улица: ${streetOnly}\n`;
 
   if (String(order.worksDescription || '').trim()) {
-    text += `\n📝 Пожелания: ${escapeTelegramHtml(order.worksDescription)}\n`;
+    text += `\n📝 Дополнительное описание: ${escapeTelegramHtml(order.worksDescription)}\n`;
   }
 
   return text;
@@ -1047,9 +1109,7 @@ function generateFullText(order) {
   text += '3️⃣ Отправьте фотографии химии и оборудования, когда прибудете на объект.\n';
   text += '4️⃣ После работы отправьте фотографии выполненных работ.\n';
   text += '5️⃣ Отправьте фото подписанного акта выполненных работ.\n';
-  text += '6️⃣ Подтвердите оплату от клиента.\n\n';
-
-  text += `🔖 Версия: <code>${escapeTelegramHtml(BUILD_VERSION)}</code>`;
+  text += '6️⃣ Подтвердите оплату от клиента.';
 
   return text;
 }
@@ -1742,7 +1802,7 @@ function sendReminders() {
     const diffMs = dt.getTime() - now.getTime();
     if (diffMs <= 0) continue;
 
-    if (!mark24h && diffMs <= dayMs && diffMs > dayMs - (60 * 60 * 1000)) {
+    if (!mark24h && diffMs <= dayMs && diffMs > twoHoursMs) {
       const text =
         `⏰ <b>Напоминание за 24 часа</b>\n` +
         `Заявка <code>${escapeTelegramHtml(orderId)}</code> завтра в ${escapeTelegramHtml(formatDateTimeForDisplay(dateValue, timeValue))}.`;
@@ -1760,7 +1820,7 @@ function sendReminders() {
       sent24h++;
     }
 
-    if (!mark2h && diffMs <= twoHoursMs && diffMs > twoHoursMs - (30 * 60 * 1000)) {
+    if (!mark2h && diffMs <= twoHoursMs && diffMs > 0) {
       const text =
         `🚨 <b>Напоминание за 2 часа</b>\n` +
         `Заявка <code>${escapeTelegramHtml(orderId)}</code> скоро начнется: ${escapeTelegramHtml(formatDateTimeForDisplay(dateValue, timeValue))}.`;
@@ -1800,7 +1860,7 @@ function __installReminderTrigger() {
 
   const trigger = ScriptApp.newTrigger('sendReminders')
     .timeBased()
-    .everyMinutes(15)
+    .everyMinutes(5)
     .create();
 
   const out = {
