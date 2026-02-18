@@ -1420,12 +1420,31 @@
         const step2 = document.getElementById('step2');
         const step3 = document.getElementById('step3');
 
+        function pad2Local(value) {
+            return String(value).padStart(2, '0');
+        }
+
+        function formatDateInputLocal(date) {
+            const d = date || new Date();
+            return `${d.getFullYear()}-${pad2Local(d.getMonth() + 1)}-${pad2Local(d.getDate())}`;
+        }
+
+        function formatTimeInputLocal(date) {
+            const d = date || new Date();
+            return `${pad2Local(d.getHours())}:${pad2Local(d.getMinutes())}`;
+        }
+
+        function formatCreatedAtLocal(date) {
+            const d = date || new Date();
+            return `${pad2Local(d.getDate())}.${pad2Local(d.getMonth() + 1)}.${d.getFullYear()} ${pad2Local(d.getHours())}:${pad2Local(d.getMinutes())}:${pad2Local(d.getSeconds())}`;
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             const today = new Date();
-            orderDate.value = today.toISOString().split('T')[0];
+            orderDate.value = formatDateInputLocal(today);
             
             const twoHoursLater = new Date(today.getTime() + 2 * 60 * 60 * 1000);
-            orderTime.value = twoHoursLater.toISOString().split('T')[1].substring(0, 5);
+            orderTime.value = formatTimeInputLocal(twoHoursLater);
             
             checkTelegramBot();
             setupEventListeners();
@@ -1653,12 +1672,12 @@
             text += `\n`;
 
             text += `✅ <b>ЧТО НУЖНО СДЕЛАТЬ</b>\n`;
-            text += `1. Написать клиенту готовое сообщение из блока ниже.\n`;
-            text += `2. Подготовьтесь ответственно к заявке: заранее возьмите нужное оборудование, спланируйте как добраться и приезжайте без опозданий.\n`;
-            text += `3. Отправьте фотографии химии и оборудования, когда прибудете на объект.\n`;
-            text += `4. После работы отправьте фотографии выполненных работ.\n`;
-            text += `5. Отправьте фото подписанного акта выполненных работ.\n`;
-            text += `6. Подтвердите оплату от клиента.\n\n`;
+            text += `1️⃣ Написать клиенту готовое сообщение из блока ниже.\n`;
+            text += `2️⃣ Подготовьтесь ответственно к заявке: заранее возьмите нужное оборудование, спланируйте, как добраться, и приезжайте без опозданий.\n`;
+            text += `3️⃣ Отправьте фотографии химии и оборудования, когда прибудете на объект.\n`;
+            text += `4️⃣ После работы отправьте фотографии выполненных работ.\n`;
+            text += `5️⃣ Отправьте фото подписанного акта выполненных работ.\n`;
+            text += `6️⃣ Подтвердите оплату от клиента.\n\n`;
 
             text += `💬 <b>ГОТОВОЕ СООБЩЕНИЕ КЛИЕНТУ</b>\n`;
             text += `<code>${clientMessage}</code>`;
@@ -2020,7 +2039,7 @@
                 worksDescription: worksDescription.value || '',
                 equipment: equipment.join(', ') || '—',
                 chemistry: chemistry.join(', ') || '—',
-                createdAt: new Date().toISOString(),
+                createdAt: formatCreatedAtLocal(new Date()),
                 telegramMessageId: telegramMessageId || ''
             };
             

@@ -5,7 +5,7 @@ const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
 const DEFAULT_WEBAPP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbztMUmZ__-JQXy_IpIh_6zGAGkzMZGd9LYfxnCybzcKfAw4CM9lNBawhh_LgGJjeTGj/exec';
-const BUILD_VERSION = '2026-02-18-stable-take-flow-v13';
+const BUILD_VERSION = '2026-02-18-stable-take-flow-v14';
 const REQUIRED_HEADERS = [
   'Номер заявки',
   'Дата создания',
@@ -616,6 +616,8 @@ function getCellByHeader(rowValues, headerMap, headerName) {
 
 function buildOrderRowData(order, status) {
   const createdAt = normalizeCreatedAtValue(order._ts || order.createdAt);
+  const normalizedOrderDate = normalizeOrderDateValue(order.orderDate);
+  const normalizedOrderTime = normalizeOrderTimeValue(order.orderTime);
   return {
     'Номер заявки': order.orderId || '',
     'Дата создания': createdAt,
@@ -625,8 +627,8 @@ function buildOrderRowData(order, status) {
     'Город': order.customerCity || '',
     'Улица и дом': order.customerAddress || '',
     'Квартира/офис': order.customerFlat || '',
-    'Дата уборки': order.orderDate || '',
-    'Время уборки': order.orderTime || '',
+    'Дата уборки': normalizedOrderDate,
+    'Время уборки': normalizedOrderTime,
     'Сумма заказа': order.orderTotal || '',
     'Зарплата мастерам': order.masterPay || '',
     'Тип уборки': order.cleaningType || '',
@@ -664,6 +666,20 @@ function normalizeCreatedAtValue(value) {
   }
 
   return raw;
+}
+
+function normalizeOrderDateValue(value) {
+  if (value === null || value === undefined || value === '') return '';
+  const normalized = formatDateForDisplay(value);
+  if (normalized && normalized !== 'не указаны') return normalized;
+  return String(value || '').trim();
+}
+
+function normalizeOrderTimeValue(value) {
+  if (value === null || value === undefined || value === '') return '';
+  const normalized = formatTimeForDisplay(value);
+  if (normalized && normalized !== 'не указаны') return normalized;
+  return String(value || '').trim();
 }
 
 function appendOrderRow(sheet, rowData) {
@@ -752,6 +768,8 @@ function updateOrderRow(rowNum, order) {
   const currentRow = sheet.getRange(rowNum, 1, 1, headers.length).getValues()[0];
   const statusCol = headers.indexOf('Статус');
   const createdAt = normalizeCreatedAtValue(order._ts || order.createdAt);
+  const normalizedOrderDate = normalizeOrderDateValue(order.orderDate);
+  const normalizedOrderTime = normalizeOrderTimeValue(order.orderTime);
 
   const map = {
     'Номер заявки': order.orderId || '',
@@ -762,8 +780,8 @@ function updateOrderRow(rowNum, order) {
     'Город': order.customerCity || '',
     'Улица и дом': order.customerAddress || '',
     'Квартира/офис': order.customerFlat || '',
-    'Дата уборки': order.orderDate || '',
-    'Время уборки': order.orderTime || '',
+    'Дата уборки': normalizedOrderDate,
+    'Время уборки': normalizedOrderTime,
     'Сумма заказа': order.orderTotal || '',
     'Зарплата мастерам': order.masterPay || '',
     'Тип уборки': order.cleaningType || '',
