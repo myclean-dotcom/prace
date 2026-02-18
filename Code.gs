@@ -587,6 +587,11 @@ function sendOrderToGroup(order, fallbackTelegramChannel) {
 
   const briefText = generateBriefText(order);
   const callbackData = makeTakeCallbackData(order.orderId);
+  const takeKeyboard = {
+    inline_keyboard: [[
+      { text: '✅ ВЫХОЖУ НА ЗАЯВКУ', callback_data: callbackData }
+    ]]
+  };
 
   const sendResp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'post',
@@ -594,11 +599,7 @@ function sendOrderToGroup(order, fallbackTelegramChannel) {
       chat_id: chatId,
       text: briefText,
       parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [[
-          { text: '✅ ВЫХОЖУ НА ЗАЯВКУ', callback_data: callbackData }
-        ]]
-      },
+      reply_markup: takeKeyboard,
       disable_web_page_preview: true
     })
   });
@@ -608,12 +609,40 @@ function sendOrderToGroup(order, fallbackTelegramChannel) {
     return { ok: false, reason: 'telegram_error', telegram: sendResp || null };
   }
 
+  // Иногда Telegram-клиент получает сообщение без inline-кнопки.
+  // Принудительно проставляем клавиатуру сразу после отправки.
+  const forcedMarkup = forceTakeButtonOnGroupMessage(
+    token,
+    chatId,
+    String(sendResp.result.message_id || '').trim(),
+    takeKeyboard
+  );
+
   return {
     ok: true,
     chatId: String(chatId),
     messageId: String(sendResp.result.message_id || '').trim(),
+    forcedMarkupOk: forcedMarkup,
     telegram: sendResp
   };
+}
+
+function forceTakeButtonOnGroupMessage(token, chatId, messageId, keyboard) {
+  const botToken = String(token || '').trim();
+  const chat = String(chatId || '').trim();
+  const msg = String(messageId || '').trim();
+  if (!botToken || !chat || !msg) return false;
+
+  const resp = urlFetchJson(`https://api.telegram.org/bot${botToken}/editMessageReplyMarkup`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: chat,
+      message_id: Number(msg),
+      reply_markup: keyboard || { inline_keyboard: [] }
+    })
+  });
+
+  return !!(resp && resp.ok === true);
 }
 
 /* ---------- Telegram callback ---------- */
