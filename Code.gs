@@ -3,7 +3,7 @@
 
 const PROP = PropertiesService.getScriptProperties();
 
-const BUILD_VERSION = '2026-02-18-clean-v5';
+const BUILD_VERSION = '2026-02-18-clean-v6';
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
 const DEFAULT_WEBAPP_EXEC_URL = '';
