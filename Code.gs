@@ -775,10 +775,7 @@ function generateBriefText(order) {
   const area = escapeTelegramHtml(order.area || 'не указана');
   const dateTime = escapeTelegramHtml(formatDateTimeForDisplay(order.orderDate, order.orderTime));
   const pay = escapeTelegramHtml(order.masterPay || order.orderTotal || '0');
-  const address = escapeTelegramHtml([
-    String(order.customerAddress || '').trim(),
-    String(order.customerFlat || '').trim()
-  ].filter(Boolean).join(', ') || 'не указан');
+  const streetOnly = escapeTelegramHtml(extractStreetOnly(order.customerAddress) || 'не указана');
 
   let text = `🧹 <b>ЗАЯВКА №${escapeTelegramHtml(order.orderId || '')}</b>\n`;
   text += '───────────────────\n';
@@ -787,7 +784,7 @@ function generateBriefText(order) {
   text += `📐 Площадь: ${area} м²\n`;
   text += `🗓 Дата и время: ${dateTime}\n`;
   text += `💰 Оплата мастеру: ${pay} руб\n`;
-  text += `📍 Адрес: ${address}\n`;
+  text += `📍 Улица: ${streetOnly}\n`;
 
   if (String(order.worksDescription || '').trim()) {
     text += `\n📝 Пожелания: ${escapeTelegramHtml(order.worksDescription)}\n`;
@@ -878,6 +875,13 @@ function buildClientReadyMessage(order) {
   if (fullAddress) msg += ` Адрес: ${fullAddress}.`;
   msg += ' До встречи!';
   return msg;
+}
+
+function extractStreetOnly(address) {
+  const raw = String(address || '').trim();
+  if (!raw) return '';
+  const firstChunk = raw.split(',')[0];
+  return String(firstChunk || '').trim();
 }
 
 /* ---------- Callback parsing & dedupe ---------- */
@@ -1196,6 +1200,9 @@ function resolveWebhookExecUrl(preferredUrl) {
   const preferred = normalizeWebhookUrlToExec(preferredUrl);
   if (preferred) return preferred;
 
+  const service = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
+  if (service) return service;
+
   const stored = normalizeWebhookUrlToExec(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY));
   if (stored) return stored;
 
@@ -1339,7 +1346,7 @@ function __setWebhookProd() {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
 
-  const url = resolveWebhookExecUrl(DEFAULT_WEBAPP_EXEC_URL);
+  const url = resolveWebhookExecUrl('');
   if (!url) throw new Error('Не удалось определить URL Web App');
 
   const del = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
