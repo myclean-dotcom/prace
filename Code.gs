@@ -1383,8 +1383,15 @@ function __setWebhookProd() {
 }
 
 function __setWebAppExecUrl(url) {
-  const normalized = normalizeWebhookUrlToExec(url);
-  if (!normalized) throw new Error('Передайте корректный URL Web App (/exec)');
+  const normalized =
+    normalizeWebhookUrlToExec(url) ||
+    normalizeWebhookUrlToExec(DEFAULT_WEBAPP_EXEC_URL) ||
+    normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
+
+  if (!normalized) {
+    throw new Error('Не удалось определить URL Web App. Укажите /exec URL вручную.');
+  }
+
   PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, normalized);
   const out = {
     ok: true,
