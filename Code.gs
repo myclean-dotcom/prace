@@ -2066,7 +2066,19 @@ function __setManagerChatId(chatId) {
 }
 
 function __setWebAppExecUrl(url) {
-  const normalized = normalizeWebhookUrlToExec(url) || normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
+  let normalized = normalizeWebhookUrlToExec(url);
+  if (!normalized) normalized = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
+
+  if (!normalized) {
+    const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+    if (token) {
+      const info = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
+      if (info && info.ok === true && info.result && info.result.url) {
+        normalized = normalizeWebhookUrlToExec(info.result.url);
+      }
+    }
+  }
+
   if (!normalized) throw new Error('Передайте корректный URL Web App (/exec)');
   PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, normalized);
   const out = {
