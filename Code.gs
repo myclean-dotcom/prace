@@ -1,13 +1,15 @@
-// Code.gs - чистая версия backend для заявок и Telegram
-// Развертывается как Google Apps Script Web App
+// Code.gs - стабильный backend для заявок + Telegram кнопок
+
+const BUILD_VERSION = '2026-02-19-clean-rewrite-v1';
 
 const PROP = PropertiesService.getScriptProperties();
-
-const BUILD_VERSION = '2026-02-18-clean-v7';
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
-const DEFAULT_WEBAPP_EXEC_URL = '';
 const WEBHOOK_LAST_SYNC_TS_PROPERTY = 'WEBHOOK_LAST_SYNC_TS';
+
+const CALLBACK_CACHE_TTL_SECONDS = 600;
+const ORDER_DM_SENT_PREFIX = 'ORDER_DM_SENT_';
+const ORDER_DM_META_PREFIX = 'ORDER_DM_META_';
 
 const REQUIRED_HEADERS = [
   'Номер заявки',
@@ -44,14 +46,14 @@ const REQUIRED_HEADERS = [
 
 function doGet(e) {
   try {
-    const isHealth = e && e.parameter && String(e.parameter.health || '') === '1';
-    if (isHealth) {
+    const health = e && e.parameter && String(e.parameter.health || '') === '1';
+    if (health) {
       return jsonResponse({
         ok: true,
         info: 'webapp active',
         buildVersion: BUILD_VERSION,
         execUrl: resolveWebhookExecUrl('')
-      }, 200);
+      });
     }
 
     const html = HtmlService.createHtmlOutput(
@@ -60,19 +62,19 @@ function doGet(e) {
       '<h2>Web App развернут</h2>' +
       '<p>Этот URL используется как backend endpoint (webhook/API).</p>' +
       '<p>Проверка: добавьте <code>?health=1</code> к URL.</p>' +
-      `<p>buildVersion: <code>${escapeHtml(BUILD_VERSION)}</code></p>` +
+      '<p>buildVersion: <code>' + escapeHtml(BUILD_VERSION) + '</code></p>' +
       '</body></html>'
     );
+
     return html.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   } catch (err) {
-    return jsonResponse({ ok: false, error: err.message, buildVersion: BUILD_VERSION }, 500);
+    return jsonResponse({ ok: false, error: err.message, buildVersion: BUILD_VERSION });
   }
 }
 
 function doPost(e) {
   try {
     const body = parseIncomingBody(e || {});
-
     try { Logger.log('doPost body: ' + JSON.stringify(body)); } catch (err) {}
 
     if (body.callback_query || body.message || body.edited_message) {
@@ -82,7 +84,7 @@ function doPost(e) {
     const action = String(body.action || '').trim().toLowerCase();
 
     if (action === 'probe_version') {
-      return jsonResponse({ ok: true, action: 'probe_version', buildVersion: BUILD_VERSION }, 200);
+      return jsonResponse({ ok: true, action: 'probe_version', buildVersion: BUILD_VERSION });
     }
 
     if (action === 'check_bot') {
@@ -98,14 +100,14 @@ function doPost(e) {
       error: 'unknown action',
       buildVersion: BUILD_VERSION,
       details: { keys: Object.keys(body || {}) }
-    }, 400);
+    });
   } catch (err) {
     Logger.log('doPost error: ' + err.message + '\n' + (err.stack || ''));
-    return jsonResponse({ ok: false, error: err.message, buildVersion: BUILD_VERSION }, 500);
+    return jsonResponse({ ok: false, error: err.message, buildVersion: BUILD_VERSION });
   }
 }
 
-/* ---------- Request parsing ---------- */
+/* ---------- Incoming body parsing ---------- */
 
 function parseIncomingBody(event) {
   const param = event.parameter || {};
@@ -133,7 +135,6 @@ function parseIncomingBody(event) {
   const action = body && body.action !== undefined && body.action !== null
     ? String(body.action).trim().toLowerCase()
     : '';
-
   if (action) body.action = action;
 
   if (!action && looksLikeCreateOrderPayload(body)) {
@@ -147,11 +148,13 @@ function flattenParameters(parameters) {
   const out = {};
   const src = parameters || {};
   const keys = Object.keys(src);
+
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i];
     const value = src[key];
     out[key] = Array.isArray(value) ? value[0] : value;
   }
+
   return out;
 }
 
@@ -172,21 +175,12 @@ function parseFormEncoded(raw) {
 
     const decodedKey = decodeURIComponent(String(key || '').replace(/\+/g, ' '));
     const decodedVal = decodeURIComponent(String(val || '').replace(/\+/g, ' '));
-    if (!decodedKey) continue;
 
+    if (!decodedKey) continue;
     out[decodedKey] = decodedVal;
   }
 
   return out;
-}
-
-function tryParseJson(value) {
-  if (typeof value !== 'string') return null;
-  try {
-    return JSON.parse(value);
-  } catch (err) {
-    return null;
-  }
 }
 
 function unwrapBodyPayload(body) {
@@ -194,9 +188,9 @@ function unwrapBodyPayload(body) {
 
   for (let i = 0; i < 6; i++) {
     if (typeof current === 'string') {
-      const parsedString = tryParseJson(current);
-      if (parsedString) {
-        current = parsedString;
+      const parsed = tryParseJson(current);
+      if (parsed && typeof parsed === 'object') {
+        current = parsed;
         continue;
       }
       break;
@@ -228,8 +222,18 @@ function unwrapBodyPayload(body) {
   return (current && typeof current === 'object') ? current : {};
 }
 
+function tryParseJson(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value);
+  } catch (err) {
+    return null;
+  }
+}
+
 function looksLikeCreateOrderPayload(body) {
   if (!body || typeof body !== 'object') return false;
+
   return !!(
     body.customerName ||
     body.customerPhone ||
@@ -288,10 +292,9 @@ function ensureSheetHeaders(sheet) {
     sheet.insertColumnsAfter(sheet.getMaxColumns(), width - sheet.getMaxColumns());
   }
 
-  const currentHeaders = sheet
-    .getRange(1, 1, 1, width)
-    .getValues()[0]
-    .map(function(h) { return String(h || '').trim(); });
+  const currentHeaders = sheet.getRange(1, 1, 1, width).getValues()[0].map(function(h) {
+    return String(h || '').trim();
+  });
 
   const missing = REQUIRED_HEADERS.filter(function(h) {
     return currentHeaders.indexOf(h) === -1;
@@ -328,16 +331,27 @@ function getHeaderMap(sheet) {
 }
 
 function appendOrderRow(sheet, rowData) {
-  const headers = sheet
-    .getRange(1, 1, 1, sheet.getLastColumn())
-    .getValues()[0]
-    .map(function(h) { return String(h || '').trim(); });
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(function(h) {
+    return String(h || '').trim();
+  });
 
   const row = headers.map(function(header) {
     return Object.prototype.hasOwnProperty.call(rowData, header) ? rowData[header] : '';
   });
 
   sheet.appendRow(row);
+}
+
+function setCellByHeader(sheet, row, headerMap, headerName, value) {
+  const col = headerMap[headerName];
+  if (!col) return;
+  sheet.getRange(row, col).setValue(value);
+}
+
+function getCellFromRowByHeader(rowValues, headerMap, headerName) {
+  const col = headerMap[headerName];
+  if (!col) return '';
+  return rowValues[col - 1];
 }
 
 function findOrderRowById(orderId) {
@@ -377,7 +391,10 @@ function findOrderRowByTelegramMessage(chatId, messageId) {
   const rows = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    if (String(row[chatCol - 1] || '').trim() === chat && String(row[msgCol - 1] || '').trim() === msg) {
+    if (
+      String(row[chatCol - 1] || '').trim() === chat &&
+      String(row[msgCol - 1] || '').trim() === msg
+    ) {
       return i + 2;
     }
   }
@@ -385,43 +402,54 @@ function findOrderRowByTelegramMessage(chatId, messageId) {
   return null;
 }
 
-function setCellByHeader(sheet, row, headerMap, headerName, value) {
-  const col = headerMap[headerName];
-  if (!col) return;
-  sheet.getRange(row, col).setValue(value);
-}
+function findActiveOrderRowByMasterId(masterId) {
+  const target = String(masterId || '').trim();
+  if (!target) return null;
 
-function getCellFromRowByHeader(rowValues, headerMap, headerName) {
-  const col = headerMap[headerName];
-  if (!col) return '';
-  return rowValues[col - 1];
+  const sheet = getSheet();
+  const map = getHeaderMap(sheet);
+  const idCol = map['Master ID'];
+  const statusCol = map['Статус'];
+  const lastRow = sheet.getLastRow();
+
+  if (!idCol || !statusCol || lastRow < 2) return null;
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    const id = String(row[idCol - 1] || '').trim();
+    const status = String(row[statusCol - 1] || '').toLowerCase().trim();
+    if (!id || id !== target) continue;
+
+    if (status.indexOf('взята') === -1 && status.indexOf('на объекте') === -1) continue;
+    return i + 2;
+  }
+
+  return null;
 }
 
 function getOrderByRow(rowNum) {
   const sheet = getSheet();
-  const headers = sheet
-    .getRange(1, 1, 1, sheet.getLastColumn())
-    .getValues()[0]
-    .map(function(h) { return String(h || '').trim(); });
-
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(function(h) {
+    return String(h || '').trim();
+  });
   const values = sheet.getRange(rowNum, 1, 1, headers.length).getValues()[0];
-  const out = {};
 
+  const out = {};
   for (let i = 0; i < headers.length; i++) {
     if (headers[i]) out[headers[i]] = values[i];
   }
-
   return out;
 }
 
 /* ---------- Order create/update ---------- */
 
 function createOrUpdateOrder(payload, action) {
-  const sheet = getSheet();
   const orderId = String(payload.orderId || '').trim() || ('CLN-' + Date.now().toString().slice(-8));
 
   const order = {
     orderId: orderId,
+    createdAt: normalizeCreatedAtValue(payload.createdAt || payload._ts),
     manager: String(payload.manager || '').trim(),
     customerName: normalizeCustomerName(payload.customerName),
     customerPhone: String(payload.customerPhone || '').trim(),
@@ -436,23 +464,22 @@ function createOrUpdateOrder(payload, action) {
     area: String(payload.area || '').trim(),
     chemistry: String(payload.chemistry || '—').trim(),
     equipment: String(payload.equipment || '—').trim(),
-    worksDescription: String(payload.worksDescription || '').trim(),
-    createdAt: normalizeCreatedAtValue(payload.createdAt || payload._ts)
+    worksDescription: String(payload.worksDescription || '').trim()
   };
 
-  if (action === 'update') {
+  const sheet = getSheet();
+
+  if (String(action || '').trim() === 'update') {
     const rowNum = findOrderRowById(orderId);
     if (rowNum) {
       updateOrderRow(rowNum, order);
-      return jsonResponse({ ok: true, orderId: orderId, updated: true, buildVersion: BUILD_VERSION }, 200);
+      return jsonResponse({ ok: true, orderId: orderId, updated: true, buildVersion: BUILD_VERSION });
     }
   }
 
-  const rowData = buildOrderRowData(order, 'Опубликована');
-  appendOrderRow(sheet, rowData);
+  appendOrderRow(sheet, buildOrderRowData(order, 'Опубликована'));
 
-  // Самовосстановление: перед отправкой в группу убеждаемся,
-  // что webhook у Telegram направлен на текущий /exec этого деплоя.
+  // Самовосстановление webhook: чтобы кнопка не отваливалась после смены деплоя.
   ensureWebhookBoundToCurrentExec(false);
 
   const publishResult = sendOrderToGroup(order, payload.telegramChannel);
@@ -469,7 +496,7 @@ function createOrUpdateOrder(payload, action) {
       note: note,
       telegram: publishResult.telegram || null,
       buildVersion: BUILD_VERSION
-    }, 200);
+    });
   }
 
   setTelegramIdsForOrder(orderId, publishResult.chatId, publishResult.messageId);
@@ -480,53 +507,7 @@ function createOrUpdateOrder(payload, action) {
     chat: String(publishResult.chatId),
     messageId: publishResult.messageId,
     buildVersion: BUILD_VERSION
-  }, 200);
-}
-
-function ensureWebhookBoundToCurrentExec(force) {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
-  if (!token) return { ok: false, reason: 'token_not_set' };
-
-  const currentExec = normalizeWebhookUrlToExec(getCurrentServiceExecUrl()) || resolveWebhookExecUrl('');
-  if (!currentExec) return { ok: false, reason: 'exec_url_not_set' };
-
-  const nowTs = Date.now();
-  const lastTs = Number(PROP.getProperty(WEBHOOK_LAST_SYNC_TS_PROPERTY) || '0');
-  const tooSoon = !force && lastTs > 0 && (nowTs - lastTs) < 3 * 60 * 1000;
-  if (tooSoon) {
-    return { ok: true, skipped: true, reason: 'recently_checked', targetUrl: currentExec };
-  }
-
-  const info = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
-  const currentWebhook = info && info.result && info.result.url
-    ? normalizeWebhookUrlToExec(info.result.url)
-    : '';
-
-  const needsSet = currentWebhook !== currentExec;
-  if (needsSet) {
-    const setResp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
-      method: 'post',
-      payload: JSON.stringify({
-        url: currentExec,
-        allowed_updates: ['message', 'edited_message', 'callback_query']
-      })
-    });
-
-    if (!setResp || setResp.ok !== true) {
-      Logger.log('ensureWebhookBoundToCurrentExec setWebhook failed: ' + JSON.stringify(setResp || null));
-      return { ok: false, reason: 'set_webhook_failed', targetUrl: currentExec, telegram: setResp || null };
-    }
-  }
-
-  PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, currentExec);
-  PROP.setProperty(WEBHOOK_LAST_SYNC_TS_PROPERTY, String(nowTs));
-
-  return {
-    ok: true,
-    changed: needsSet,
-    targetUrl: currentExec,
-    webhookUrl: currentWebhook || ''
-  };
+  });
 }
 
 function buildOrderRowData(order, status) {
@@ -564,11 +545,9 @@ function buildOrderRowData(order, status) {
 
 function updateOrderRow(rowNum, order) {
   const sheet = getSheet();
-  const headers = sheet
-    .getRange(1, 1, 1, sheet.getLastColumn())
-    .getValues()[0]
-    .map(function(h) { return String(h || '').trim(); });
-
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(function(h) {
+    return String(h || '').trim();
+  });
   const row = sheet.getRange(rowNum, 1, 1, headers.length).getValues()[0];
 
   const map = {
@@ -592,10 +571,8 @@ function updateOrderRow(rowNum, order) {
   };
 
   for (let i = 0; i < headers.length; i++) {
-    const header = headers[i];
-    if (Object.prototype.hasOwnProperty.call(map, header)) {
-      row[i] = map[header];
-    }
+    const h = headers[i];
+    if (Object.prototype.hasOwnProperty.call(map, h)) row[i] = map[h];
   }
 
   sheet.getRange(rowNum, 1, 1, row.length).setValues([row]);
@@ -623,11 +600,16 @@ function mapSheetOrderToOrderModel(order) {
     masterPay: String(order['Зарплата мастерам'] || '').trim(),
     orderTotal: String(order['Сумма заказа'] || '').trim(),
     customerAddress: String(order['Улица и дом'] || '').trim(),
+    customerFlat: String(order['Квартира/офис'] || '').trim(),
+    customerName: String(order['Имя клиента'] || '').trim(),
+    customerPhone: String(order['Телефон клиента'] || '').trim(),
     worksDescription: String(order['Описание работ'] || '').trim(),
     equipment: String(order['Оборудование'] || '').trim(),
     chemistry: String(order['Химия'] || '').trim()
   };
 }
+
+/* ---------- Telegram: group publish ---------- */
 
 function sendOrderToGroup(order, fallbackTelegramChannel) {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
@@ -637,8 +619,9 @@ function sendOrderToGroup(order, fallbackTelegramChannel) {
   if (!chatId) return { ok: false, reason: 'chat_not_set' };
 
   const briefText = generateBriefText(order);
-  const callbackData = makeTakeCallbackData(order.orderId);
-  const takeKeyboard = {
+  const callbackData = makeCallbackData('take', order.orderId);
+
+  const keyboard = {
     inline_keyboard: [[
       { text: '✅ ВЫХОЖУ НА ЗАЯВКУ', callback_data: callbackData }
     ]]
@@ -650,7 +633,7 @@ function sendOrderToGroup(order, fallbackTelegramChannel) {
       chat_id: chatId,
       text: briefText,
       parse_mode: 'HTML',
-      reply_markup: takeKeyboard,
+      reply_markup: keyboard,
       disable_web_page_preview: true
     })
   });
@@ -660,20 +643,12 @@ function sendOrderToGroup(order, fallbackTelegramChannel) {
     return { ok: false, reason: 'telegram_error', telegram: sendResp || null };
   }
 
-  // Иногда Telegram-клиент получает сообщение без inline-кнопки.
-  // Принудительно проставляем клавиатуру сразу после отправки.
-  const forcedMarkup = forceTakeButtonOnGroupMessage(
-    token,
-    chatId,
-    String(sendResp.result.message_id || '').trim(),
-    takeKeyboard
-  );
+  forceTakeButtonOnGroupMessage(token, chatId, sendResp.result.message_id, keyboard);
 
   return {
     ok: true,
     chatId: String(chatId),
     messageId: String(sendResp.result.message_id || '').trim(),
-    forcedMarkupOk: forcedMarkup,
     telegram: sendResp
   };
 }
@@ -696,255 +671,354 @@ function forceTakeButtonOnGroupMessage(token, chatId, messageId, keyboard) {
   return !!(resp && resp.ok === true);
 }
 
-/* ---------- Telegram callback ---------- */
+/* ---------- Telegram update handler ---------- */
 
 function handleTelegramUpdate(body) {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
-  if (!token) return jsonResponse({ ok: false, error: 'Token not set', buildVersion: BUILD_VERSION }, 500);
+  if (!token) return jsonResponse({ ok: false, error: 'Token not set', buildVersion: BUILD_VERSION });
 
-  if (body.callback_query) {
-    const cb = body.callback_query;
-    const callbackId = String(cb.id || '').trim();
-    const data = String(cb.data || '').trim();
-    const from = cb.from || {};
-    const message = cb.message || {};
-    const cbChatId = message.chat ? String(message.chat.id || '') : '';
-    const cbMessageId = String(message.message_id || '');
-
-    if (isDuplicateCallback(callbackId)) {
-      answerCallback(token, callbackId, 'ℹ️ Нажатие уже обработано');
-      return jsonResponse({ ok: true, duplicate: true, buildVersion: BUILD_VERSION }, 200);
+  try {
+    if (body.callback_query) {
+      return handleCallbackQuery(body.callback_query, token);
     }
 
-    const parsed = parseCallbackActionData(data);
-    try {
-      Logger.log('callback_query raw=' + data + ' parsed=' + JSON.stringify(parsed || null));
-    } catch (err) {}
-
-    if (!parsed) {
-      answerCallback(token, callbackId, 'Неизвестное действие');
-      return jsonResponse({ ok: true, ignored: true, buildVersion: BUILD_VERSION }, 200);
+    if (body.message && body.message.photo && body.message.from) {
+      return handleMasterPhotoMessage(body.message, token);
     }
 
-    const lock = LockService.getScriptLock();
-    if (!lock.tryLock(3000)) {
-      answerCallback(token, callbackId, '⏳ Попробуйте снова через пару секунд');
-      return jsonResponse({ ok: true, busy: true, buildVersion: BUILD_VERSION }, 200);
+    if (body.message && body.message.text) {
+      return handleTextMessage(body.message, token);
     }
 
-    try {
-      let rowNum = findOrderRowById(parsed.orderId);
-      if (!rowNum) rowNum = findOrderRowByTelegramMessage(cbChatId, cbMessageId);
+    if (body.message && body.message.chat && body.message.chat.id) {
+      const saved = String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
+      if (!saved) {
+        PROP.setProperty('TELEGRAM_CHAT_ID', String(body.message.chat.id));
+      }
+    }
 
-      if (!rowNum) {
-        answerCallback(token, callbackId, '❌ Заявка не найдена');
-        return jsonResponse({ ok: false, error: 'Order not found', buildVersion: BUILD_VERSION }, 200);
+    return jsonResponse({ ok: true, buildVersion: BUILD_VERSION });
+  } catch (err) {
+    Logger.log('handleTelegramUpdate error: ' + err.message + '\n' + (err.stack || ''));
+    return jsonResponse({ ok: false, error: err.message, buildVersion: BUILD_VERSION });
+  }
+}
+
+function handleCallbackQuery(cb, token) {
+  const callbackId = String(cb.id || '').trim();
+  const data = String(cb.data || '').trim();
+  const from = cb.from || {};
+  const message = cb.message || {};
+
+  const cbChatId = message.chat ? String(message.chat.id || '') : '';
+  const cbMessageId = String(message.message_id || '');
+
+  if (isDuplicateCallback(callbackId)) {
+    answerCallback(token, callbackId, 'ℹ️ Нажатие уже обработано');
+    return jsonResponse({ ok: true, duplicate: true, buildVersion: BUILD_VERSION });
+  }
+
+  const parsed = parseCallbackActionData(data);
+  try { Logger.log('callback_query raw=' + data + ' parsed=' + JSON.stringify(parsed || null)); } catch (err) {}
+
+  if (!parsed) {
+    answerCallback(token, callbackId, 'Неизвестное действие');
+    return jsonResponse({ ok: true, ignored: true, buildVersion: BUILD_VERSION });
+  }
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(3000)) {
+    answerCallback(token, callbackId, '⏳ Попробуйте снова через пару секунд');
+    return jsonResponse({ ok: true, busy: true, buildVersion: BUILD_VERSION });
+  }
+
+  try {
+    let rowNum = findOrderRowById(parsed.orderId);
+    if (!rowNum) rowNum = findOrderRowByTelegramMessage(cbChatId, cbMessageId);
+
+    if (!rowNum) {
+      answerCallback(token, callbackId, '❌ Заявка не найдена');
+      return jsonResponse({ ok: false, error: 'Order not found', buildVersion: BUILD_VERSION });
+    }
+
+    const order = getOrderByRow(rowNum);
+    const orderId = String(order['Номер заявки'] || parsed.orderId || '').trim();
+    const status = String(order['Статус'] || '').toLowerCase().trim();
+    const currentMasterId = String(order['Master ID'] || '').trim();
+
+    const masterId = String(from.id || '').trim();
+    let masterName = `${from.first_name || ''} ${from.last_name || ''}`.trim();
+    if (!masterName && from.username) masterName = '@' + from.username;
+    if (!masterName) masterName = 'Мастер';
+
+    if (!masterId || !orderId) {
+      answerCallback(token, callbackId, '❌ Не удалось обработать заявку');
+      return jsonResponse({ ok: false, error: 'Bad callback payload', buildVersion: BUILD_VERSION });
+    }
+
+    if (parsed.action === 'take') {
+      if (status.indexOf('взята') !== -1 || status.indexOf('на объекте') !== -1) {
+        if (currentMasterId && currentMasterId === masterId) {
+          answerCallback(token, callbackId, 'ℹ️ Вы уже приняли эту заявку');
+          return jsonResponse({ ok: true, alreadyTakenBySameMaster: true, buildVersion: BUILD_VERSION });
+        }
+        answerCallback(token, callbackId, '❌ Заявка уже принята другим мастером');
+        return jsonResponse({ ok: true, alreadyTaken: true, buildVersion: BUILD_VERSION });
       }
 
-      const order = getOrderByRow(rowNum);
-      const orderId = String(order['Номер заявки'] || parsed.orderId || '').trim();
-      const status = String(order['Статус'] || '').toLowerCase().trim();
-      const currentMasterId = String(order['Master ID'] || '').trim();
-
-      const masterId = String(from.id || '').trim();
-      let masterName = `${from.first_name || ''} ${from.last_name || ''}`.trim();
-      if (!masterName && from.username) masterName = '@' + from.username;
-      if (!masterName) masterName = 'Мастер';
-
-      if (!masterId || !orderId) {
-        answerCallback(token, callbackId, '❌ Не удалось обработать заявку');
-        return jsonResponse({ ok: false, error: 'Bad callback payload', buildVersion: BUILD_VERSION }, 200);
+      if (status.indexOf('заверш') !== -1) {
+        answerCallback(token, callbackId, '❌ Заявка уже завершена');
+        return jsonResponse({ ok: true, alreadyDone: true, buildVersion: BUILD_VERSION });
       }
 
-      if (parsed.action === 'take') {
-        if (status.indexOf('взята') !== -1 || status.indexOf('на объекте') !== -1) {
-          if (currentMasterId && currentMasterId === masterId) {
-            answerCallback(token, callbackId, 'ℹ️ Вы уже приняли эту заявку');
-            return jsonResponse({ ok: true, alreadyTakenBySameMaster: true, buildVersion: BUILD_VERSION }, 200);
+      const takenAt = formatDateTime(new Date());
+      updateOrderTakenByRow(rowNum, masterId, masterName, takenAt);
+      answerCallback(token, callbackId, '✅ Заявка принята. Отправляю детали в личные сообщения.');
+
+      const updatedOrder = getOrderByRow(rowNum);
+
+      if (!isMasterDmAlreadySent(orderId)) {
+        const dmMessageIds = [];
+
+        const fullText = generateFullText(updatedOrder);
+        const dm1 = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'post',
+          payload: JSON.stringify({
+            chat_id: masterId,
+            text: fullText,
+            parse_mode: 'HTML',
+            reply_markup: buildMasterActionKeyboard(orderId)
+          })
+        });
+
+        if (dm1 && dm1.ok === true && dm1.result && dm1.result.message_id !== undefined) {
+          dmMessageIds.push(String(dm1.result.message_id));
+
+          const clientMessage = buildClientReadyMessage(updatedOrder);
+          const shareUrl = buildTelegramShareUrl(clientMessage);
+          const dm2Payload = {
+            chat_id: masterId,
+            text: `<code>${escapeTelegramHtml(clientMessage)}</code>`,
+            parse_mode: 'HTML'
+          };
+
+          if (shareUrl) {
+            dm2Payload.reply_markup = {
+              inline_keyboard: [[
+                { text: '📤 ОТКРЫТЬ ТЕКСТ ДЛЯ КЛИЕНТА', url: shareUrl }
+              ]]
+            };
           }
-          answerCallback(token, callbackId, '❌ Заявка уже принята другим мастером');
-          return jsonResponse({ ok: true, alreadyTaken: true, buildVersion: BUILD_VERSION }, 200);
-        }
 
-        if (status.indexOf('заверш') !== -1) {
-          answerCallback(token, callbackId, '❌ Заявка уже завершена');
-          return jsonResponse({ ok: true, alreadyDone: true, buildVersion: BUILD_VERSION }, 200);
-        }
-
-        const takenAt = formatDateTime(new Date());
-        updateOrderTakenByRow(rowNum, masterId, masterName, takenAt);
-        answerCallback(token, callbackId, '✅ Заявка принята. Отправляю детали в личные сообщения.');
-
-        const updatedOrder = getOrderByRow(rowNum);
-
-        if (!isMasterDmAlreadySent(orderId)) {
-          const fullText = generateFullText(updatedOrder);
-
-          const dm1 = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+          const dm2 = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'post',
-            payload: JSON.stringify({
-              chat_id: masterId,
-              text: fullText,
-              parse_mode: 'HTML',
-              reply_markup: buildMasterActionKeyboard(orderId)
-            })
+            payload: JSON.stringify(dm2Payload)
           });
 
-          if (dm1 && dm1.ok === true) {
-            const dmMessageIds = [];
-            if (dm1.result && dm1.result.message_id !== undefined && dm1.result.message_id !== null) {
-              dmMessageIds.push(String(dm1.result.message_id));
-            }
-
-            const clientMessage = buildClientReadyMessage(updatedOrder);
-            const shareUrl = buildTelegramShareUrl(clientMessage);
-            const dm2Payload = {
-              chat_id: masterId,
-              text: `<code>${escapeTelegramHtml(clientMessage)}</code>`,
-              parse_mode: 'HTML'
-            };
-            if (shareUrl) {
-              dm2Payload.reply_markup = {
-                inline_keyboard: [[
-                  { text: '📤 ОТКРЫТЬ ТЕКСТ ДЛЯ ОТПРАВКИ', url: shareUrl }
-                ]]
-              };
-            }
-
-            const dm2 = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-              method: 'post',
-              payload: JSON.stringify(dm2Payload)
-            });
-            if (dm2 && dm2.ok === true && dm2.result && dm2.result.message_id !== undefined && dm2.result.message_id !== null) {
-              dmMessageIds.push(String(dm2.result.message_id));
-            }
-
-            markMasterDmSent(orderId, masterId, dmMessageIds);
-          } else {
-            Logger.log('DM send failed for order ' + orderId + ': ' + JSON.stringify(dm1));
+          if (dm2 && dm2.ok === true && dm2.result && dm2.result.message_id !== undefined) {
+            dmMessageIds.push(String(dm2.result.message_id));
           }
+
+          markMasterDmSent(orderId, masterId, dmMessageIds);
+        } else {
+          Logger.log('DM send failed for order ' + orderId + ': ' + JSON.stringify(dm1));
         }
-
-        try {
-          const chatId = String(updatedOrder['Telegram Chat ID'] || cbChatId || '').trim();
-          const messageId = String(updatedOrder['Telegram Message ID'] || cbMessageId || '').trim();
-
-          if (chatId && messageId) {
-            urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
-              method: 'post',
-              payload: JSON.stringify({
-                chat_id: chatId,
-                message_id: Number(messageId),
-                reply_markup: { inline_keyboard: [] }
-              })
-            });
-          }
-        } catch (err) {
-          Logger.log('editMessageReplyMarkup failed: ' + err.message);
-        }
-
-        return jsonResponse({ ok: true, orderId: orderId, action: 'take', buildVersion: BUILD_VERSION }, 200);
       }
 
-      if (parsed.action === 'arrive') {
-        if (!isOrderAssignedToMaster(status, currentMasterId, masterId)) {
-          answerCallback(token, callbackId, '❌ Только назначенный мастер может отметить прибытие');
-          return jsonResponse({ ok: true, denied: true, action: 'arrive', buildVersion: BUILD_VERSION }, 200);
+      try {
+        const chatId = String(updatedOrder['Telegram Chat ID'] || cbChatId || '').trim();
+        const messageId = String(updatedOrder['Telegram Message ID'] || cbMessageId || '').trim();
+        if (chatId && messageId) {
+          urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+            method: 'post',
+            payload: JSON.stringify({
+              chat_id: chatId,
+              message_id: Number(messageId),
+              reply_markup: { inline_keyboard: [] }
+            })
+          });
         }
-
-        const arrivedAt = formatDateTime(new Date());
-        updateOrderArrivedByRow(rowNum, arrivedAt);
-        const updatedOrder = getOrderByRow(rowNum);
-
-        answerCallback(token, callbackId, '✅ Отметка о прибытии сохранена');
-        updateMasterActionMessageAfterArrive(token, cbChatId, cbMessageId, orderId);
-        notifyManagerNeedInvoice(updatedOrder, masterName, arrivedAt);
-        return jsonResponse({ ok: true, orderId: orderId, action: 'arrive', buildVersion: BUILD_VERSION }, 200);
+      } catch (err) {
+        Logger.log('editMessageReplyMarkup failed: ' + err.message);
       }
 
-      if (parsed.action === 'done') {
-        if (!isOrderAssignedToMaster(status, currentMasterId, masterId)) {
-          answerCallback(token, callbackId, '❌ Только назначенный мастер может завершить заявку');
-          return jsonResponse({ ok: true, denied: true, action: 'done', buildVersion: BUILD_VERSION }, 200);
-        }
-
-        const doneAt = formatDateTime(new Date());
-        updateOrderDoneByRow(rowNum, doneAt);
-        const updatedOrder = getOrderByRow(rowNum);
-
-        answerCallback(token, callbackId, '✅ Заявка отмечена как завершенная');
-        clearMasterActionMessage(token, cbChatId, cbMessageId);
-        notifyManagerOrderDone(updatedOrder, masterName, doneAt);
-        return jsonResponse({ ok: true, orderId: orderId, action: 'done', buildVersion: BUILD_VERSION }, 200);
-      }
-
-      if (parsed.action === 'cancel') {
-        if (!currentMasterId || currentMasterId !== masterId) {
-          answerCallback(token, callbackId, '❌ Только назначенный мастер может отменить заявку');
-          return jsonResponse({ ok: true, denied: true, action: 'cancel', buildVersion: BUILD_VERSION }, 200);
-        }
-
-        const cancelledAt = formatDateTime(new Date());
-        updateOrderCancelledByRow(rowNum, masterName, cancelledAt);
-        deleteMasterDmMessages(token, orderId);
-        clearMasterDmSent(orderId);
-        answerCallback(token, callbackId, '⏳ Отмена принята, возвращаю заявку в группу');
-        const republish = republishOrderToGroupByRow(rowNum);
-        const updatedOrder = getOrderByRow(rowNum);
-        deleteMasterActionMessage(token, cbChatId, cbMessageId);
-
-        notifyManagerOrderCancelled(updatedOrder, masterName, cancelledAt, republish);
-        return jsonResponse({
-          ok: true,
-          orderId: orderId,
-          action: 'cancel',
-          republish: republish,
-          buildVersion: BUILD_VERSION
-        }, 200);
-      }
-
-      answerCallback(token, callbackId, 'Неизвестное действие');
-      return jsonResponse({ ok: true, ignored: true, buildVersion: BUILD_VERSION }, 200);
-    } catch (err) {
-      Logger.log('callback error: ' + err.message + '\n' + (err.stack || ''));
-      answerCallback(token, callbackId, '❌ Ошибка обработки кнопки. Нажмите еще раз.');
-      return jsonResponse({ ok: false, error: err.message, buildVersion: BUILD_VERSION }, 200);
-    } finally {
-      try { lock.releaseLock(); } catch (err) {}
-    }
-  }
-
-  if (body.message && body.message.photo && body.message.from) {
-    const userId = String(body.message.from.id || '').trim();
-    const photos = body.message.photo || [];
-    const lastPhoto = photos.length ? photos[photos.length - 1] : null;
-    const fileId = lastPhoto ? String(lastPhoto.file_id || '').trim() : '';
-    const caption = String(body.message.caption || '').trim();
-
-    let saved = null;
-    if (userId && fileId) {
-      saved = appendPhotoByMasterId(userId, fileId, caption);
+      return jsonResponse({ ok: true, orderId: orderId, action: 'take', buildVersion: BUILD_VERSION });
     }
 
-    forwardMasterPhotoToManager(token, body.message, saved);
+    if (parsed.action === 'arrive') {
+      if (!isOrderAssignedToMaster(status, currentMasterId, masterId)) {
+        answerCallback(token, callbackId, '❌ Только назначенный мастер может отметить прибытие');
+        return jsonResponse({ ok: true, denied: true, action: 'arrive', buildVersion: BUILD_VERSION });
+      }
 
-    urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'post',
-      payload: JSON.stringify({
-        chat_id: userId,
-        text: '✅ Фото получено, спасибо!'
-      })
-    });
+      const arrivedAt = formatDateTime(new Date());
+      updateOrderArrivedByRow(rowNum, arrivedAt);
+      const updatedOrder = getOrderByRow(rowNum);
 
-    return jsonResponse({ ok: true, buildVersion: BUILD_VERSION }, 200);
+      answerCallback(token, callbackId, '✅ Отметка о прибытии сохранена');
+      updateMasterActionMessageAfterArrive(token, cbChatId, cbMessageId, orderId);
+      notifyManagerNeedInvoice(updatedOrder, masterName, arrivedAt);
+      return jsonResponse({ ok: true, orderId: orderId, action: 'arrive', buildVersion: BUILD_VERSION });
+    }
+
+    if (parsed.action === 'done') {
+      if (!isOrderAssignedToMaster(status, currentMasterId, masterId)) {
+        answerCallback(token, callbackId, '❌ Только назначенный мастер может завершить заявку');
+        return jsonResponse({ ok: true, denied: true, action: 'done', buildVersion: BUILD_VERSION });
+      }
+
+      const doneAt = formatDateTime(new Date());
+      updateOrderDoneByRow(rowNum, doneAt);
+      const updatedOrder = getOrderByRow(rowNum);
+
+      answerCallback(token, callbackId, '✅ Заявка отмечена как завершенная');
+      clearMasterActionMessage(token, cbChatId, cbMessageId);
+      notifyManagerOrderDone(updatedOrder, masterName, doneAt);
+      return jsonResponse({ ok: true, orderId: orderId, action: 'done', buildVersion: BUILD_VERSION });
+    }
+
+    if (parsed.action === 'cancel') {
+      if (!currentMasterId || currentMasterId !== masterId) {
+        answerCallback(token, callbackId, '❌ Только назначенный мастер может отменить заявку');
+        return jsonResponse({ ok: true, denied: true, action: 'cancel', buildVersion: BUILD_VERSION });
+      }
+
+      const cancelledAt = formatDateTime(new Date());
+      updateOrderCancelledByRow(rowNum, masterName, cancelledAt);
+      deleteMasterDmMessages(token, orderId);
+      clearMasterDmSent(orderId);
+
+      answerCallback(token, callbackId, '⏳ Отмена принята, возвращаю заявку в группу');
+      const republish = republishOrderToGroupByRow(rowNum);
+      const updatedOrder = getOrderByRow(rowNum);
+
+      deleteMasterActionMessage(token, cbChatId, cbMessageId);
+      notifyManagerOrderCancelled(updatedOrder, masterName, cancelledAt, republish);
+
+      return jsonResponse({
+        ok: true,
+        orderId: orderId,
+        action: 'cancel',
+        republish: republish,
+        buildVersion: BUILD_VERSION
+      });
+    }
+
+    answerCallback(token, callbackId, 'Неизвестное действие');
+    return jsonResponse({ ok: true, ignored: true, buildVersion: BUILD_VERSION });
+  } catch (err) {
+    Logger.log('callback error: ' + err.message + '\n' + (err.stack || ''));
+    answerCallback(token, callbackId, '❌ Ошибка обработки кнопки. Нажмите еще раз.');
+    return jsonResponse({ ok: false, error: err.message, buildVersion: BUILD_VERSION });
+  } finally {
+    try { lock.releaseLock(); } catch (err) {}
   }
-
-  if (body.message && body.message.text) {
-    return handleTextMessage(body.message, token);
-  }
-
-  return jsonResponse({ ok: true, buildVersion: BUILD_VERSION }, 200);
 }
+
+function handleMasterPhotoMessage(message, token) {
+  const userId = String((message.from && message.from.id) || '').trim();
+  const photos = message.photo || [];
+  const lastPhoto = photos.length ? photos[photos.length - 1] : null;
+  const fileId = lastPhoto ? String(lastPhoto.file_id || '').trim() : '';
+  const caption = String(message.caption || '').trim();
+
+  let saved = null;
+  if (userId && fileId) {
+    const rowNum = findActiveOrderRowByMasterId(userId);
+    if (rowNum) {
+      saved = appendPhotoToOrder(rowNum, fileId, caption, message.date);
+    }
+  }
+
+  forwardMasterPhotoToManager(token, message, saved);
+
+  urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: userId,
+      text: '✅ Фото получено, спасибо!'
+    })
+  });
+
+  return jsonResponse({ ok: true, buildVersion: BUILD_VERSION });
+}
+
+function handleTextMessage(message, token) {
+  const chatId = String((message.chat && message.chat.id) || '').trim();
+  const userId = String((message.from && message.from.id) || '').trim();
+  const text = String(message.text || '').trim();
+
+  if (!text) return jsonResponse({ ok: true, buildVersion: BUILD_VERSION });
+
+  if (!String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim() && chatId) {
+    PROP.setProperty('TELEGRAM_CHAT_ID', chatId);
+  }
+
+  const managerId = getManagerChatId();
+  if (managerId && userId === managerId) {
+    const result = processManagerPaymentCommand(text, token);
+    if (result.handled) return jsonResponse({ ok: true, managerCommand: result, buildVersion: BUILD_VERSION });
+  }
+
+  return jsonResponse({ ok: true, buildVersion: BUILD_VERSION });
+}
+
+function processManagerPaymentCommand(text, token) {
+  // Команда в ЛС менеджера:
+  // /pay CLN-12345678 https://...ссылка-на-оплату
+  const parts = String(text || '').trim().split(/\s+/);
+  if (!parts.length || String(parts[0]).toLowerCase() !== '/pay') {
+    return { handled: false };
+  }
+
+  if (parts.length < 3) {
+    return { handled: true, ok: false, error: 'Используйте: /pay НОМЕР_ЗАЯВКИ ССЫЛКА' };
+  }
+
+  const orderId = String(parts[1] || '').trim();
+  const payLink = String(parts.slice(2).join(' ') || '').trim();
+  if (!orderId || !payLink) {
+    return { handled: true, ok: false, error: 'Неверный формат команды' };
+  }
+
+  const rowNum = findOrderRowById(orderId);
+  if (!rowNum) {
+    return { handled: true, ok: false, error: 'Заявка не найдена' };
+  }
+
+  const order = getOrderByRow(rowNum);
+  const masterId = String(order['Master ID'] || '').trim();
+  if (!masterId) {
+    return { handled: true, ok: false, error: 'У заявки нет назначенного мастера' };
+  }
+
+  const textToMaster = [
+    `💳 Ссылка на оплату по заявке <code>${escapeTelegramHtml(orderId)}</code>:`,
+    `${escapeTelegramHtml(payLink)}`
+  ].join('\n');
+
+  const resp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: masterId,
+      text: textToMaster,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true
+    })
+  });
+
+  if (!resp || resp.ok !== true) {
+    return { handled: true, ok: false, error: 'Не удалось отправить ссылку мастеру', telegram: resp || null };
+  }
+
+  const sheet = getSheet();
+  const map = getHeaderMap(sheet);
+  setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Ссылка на оплату отправлена ' + formatDateTime(new Date()));
+
+  return { handled: true, ok: true, orderId: orderId, masterId: masterId };
+}
+
+/* ---------- Order state updates ---------- */
 
 function updateOrderTakenByRow(rowNum, masterId, masterName, takenAt) {
   const sheet = getSheet();
@@ -961,21 +1035,10 @@ function updateOrderTakenByRow(rowNum, masterId, masterName, takenAt) {
   setCellByHeader(sheet, rowNum, map, 'Статус выполнения', '');
 }
 
-function isOrderAssignedToMaster(statusLower, currentMasterId, masterId) {
-  const status = String(statusLower || '').toLowerCase();
-  const current = String(currentMasterId || '').trim();
-  const master = String(masterId || '').trim();
-  if (!current || !master) return false;
-  if (current !== master) return false;
-  return (
-    status.indexOf('взята') !== -1 ||
-    status.indexOf('на объекте') !== -1
-  );
-}
-
 function updateOrderArrivedByRow(rowNum, arrivedAt) {
   const sheet = getSheet();
   const map = getHeaderMap(sheet);
+
   setCellByHeader(sheet, rowNum, map, 'Статус', 'На объекте');
   setCellByHeader(sheet, rowNum, map, 'Дата прибытия', String(arrivedAt || '').trim());
   setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Прибыл на объект: ' + String(arrivedAt || '').trim());
@@ -984,6 +1047,7 @@ function updateOrderArrivedByRow(rowNum, arrivedAt) {
 function updateOrderDoneByRow(rowNum, doneAt) {
   const sheet = getSheet();
   const map = getHeaderMap(sheet);
+
   setCellByHeader(sheet, rowNum, map, 'Статус', 'Завершена');
   setCellByHeader(sheet, rowNum, map, 'Дата завершения', String(doneAt || '').trim());
   setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Работы завершены: ' + String(doneAt || '').trim());
@@ -992,6 +1056,7 @@ function updateOrderDoneByRow(rowNum, doneAt) {
 function updateOrderCancelledByRow(rowNum, masterName, cancelledAt) {
   const sheet = getSheet();
   const map = getHeaderMap(sheet);
+
   const cleanMasterName = String(masterName || '').trim() || 'Мастер';
   const cleanCancelledAt = String(cancelledAt || '').trim();
 
@@ -1003,12 +1068,30 @@ function updateOrderCancelledByRow(rowNum, masterName, cancelledAt) {
   setCellByHeader(sheet, rowNum, map, 'Дата завершения', '');
   setCellByHeader(sheet, rowNum, map, 'Напоминание 24ч', '');
   setCellByHeader(sheet, rowNum, map, 'Напоминание 2ч', '');
-  setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Отменена мастером ' + cleanMasterName + ': ' + cleanCancelledAt);
+  setCellByHeader(
+    sheet,
+    rowNum,
+    map,
+    'Статус выполнения',
+    'Отменена мастером ' + cleanMasterName + ': ' + cleanCancelledAt
+  );
+}
+
+function isOrderAssignedToMaster(statusLower, currentMasterId, masterId) {
+  const status = String(statusLower || '').toLowerCase();
+  const current = String(currentMasterId || '').trim();
+  const master = String(masterId || '').trim();
+
+  if (!current || !master) return false;
+  if (current !== master) return false;
+
+  return status.indexOf('взята') !== -1 || status.indexOf('на объекте') !== -1;
 }
 
 function republishOrderToGroupByRow(rowNum) {
   const orderRow = getOrderByRow(rowNum);
   const orderModel = mapSheetOrderToOrderModel(orderRow);
+
   if (!orderModel.orderId) {
     return { ok: false, reason: 'order_id_missing' };
   }
@@ -1017,13 +1100,25 @@ function republishOrderToGroupByRow(rowNum) {
   if (publishResult.ok) {
     setTelegramIdsForOrder(orderModel.orderId, publishResult.chatId, publishResult.messageId);
   }
+
   return publishResult;
 }
+
+/* ---------- Telegram keyboards & messages ---------- */
 
 function buildMasterActionKeyboard(orderId) {
   return {
     inline_keyboard: [
       [{ text: '📍 ПРИЕХАЛ НА ОБЪЕКТ', callback_data: makeCallbackData('arrive', orderId) }],
+      [{ text: '✅ ЗАВЕРШИЛ ЗАЯВКУ', callback_data: makeCallbackData('done', orderId) }],
+      [{ text: '❌ ОТМЕНИТЬ ЗАЯВКУ', callback_data: makeCallbackData('cancel', orderId) }]
+    ]
+  };
+}
+
+function buildMasterActionKeyboardAfterArrive(orderId) {
+  return {
+    inline_keyboard: [
       [{ text: '✅ ЗАВЕРШИЛ ЗАЯВКУ', callback_data: makeCallbackData('done', orderId) }],
       [{ text: '❌ ОТМЕНИТЬ ЗАЯВКУ', callback_data: makeCallbackData('cancel', orderId) }]
     ]
@@ -1040,12 +1135,7 @@ function updateMasterActionMessageAfterArrive(token, chatId, messageId, orderId)
     payload: JSON.stringify({
       chat_id: chat,
       message_id: Number(msg),
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '✅ ЗАВЕРШИЛ ЗАЯВКУ', callback_data: makeCallbackData('done', orderId) }],
-          [{ text: '❌ ОТМЕНИТЬ ЗАЯВКУ', callback_data: makeCallbackData('cancel', orderId) }]
-        ]
-      }
+      reply_markup: buildMasterActionKeyboardAfterArrive(orderId)
     })
   });
 }
@@ -1070,72 +1160,18 @@ function deleteMasterActionMessage(token, chatId, messageId) {
   const msg = String(messageId || '').trim();
   if (!chat || !msg) return;
 
-  urlFetchJson(`https://api.telegram.org/bot${token}/deleteMessage`, {
+  const del = urlFetchJson(`https://api.telegram.org/bot${token}/deleteMessage`, {
     method: 'post',
     payload: JSON.stringify({
       chat_id: chat,
       message_id: Number(msg)
     })
   });
-}
 
-function appendPhotoByMasterId(masterId, fileId, caption) {
-  const sheet = getSheet();
-  const map = getHeaderMap(sheet);
-  const rowNum = findLatestActiveOrderRowByMasterId(String(masterId || '').trim(), sheet, map);
-  if (!rowNum) return null;
-
-  const statusDoneCol = map['Статус выполнения'] || REQUIRED_HEADERS.length;
-  const firstPhotoCol = statusDoneCol + 1;
-  const lastCol = sheet.getLastColumn();
-
-  let targetCol = null;
-  for (let c = firstPhotoCol; c <= lastCol; c++) {
-    const current = sheet.getRange(rowNum, c).getValue();
-    if (!current) {
-      targetCol = c;
-      break;
-    }
+  if (!del || del.ok !== true) {
+    clearMasterActionMessage(token, chat, msg);
   }
-
-  if (!targetCol) {
-    targetCol = Math.max(lastCol + 1, firstPhotoCol);
-    const photoIndex = targetCol - firstPhotoCol + 1;
-    sheet.getRange(1, targetCol).setValue('Фото ' + photoIndex);
-  }
-
-  const value = `${fileId} | ${caption} | ${formatDateTime(new Date())}`;
-  sheet.getRange(rowNum, targetCol).setValue(value);
-
-  const orderId = String(getOrderByRow(rowNum)['Номер заявки'] || '').trim();
-  return { rowNum: rowNum, orderId: orderId };
 }
-
-function findLatestActiveOrderRowByMasterId(masterId, sheet, headerMap) {
-  const id = String(masterId || '').trim();
-  if (!id) return null;
-
-  const activeSheet = sheet || getSheet();
-  const map = headerMap || getHeaderMap(activeSheet);
-  const masterCol = map['Master ID'];
-  const statusCol = map['Статус'];
-  const lastRow = activeSheet.getLastRow();
-  if (!masterCol || !statusCol || lastRow < 2) return null;
-
-  const rows = activeSheet.getRange(2, 1, lastRow - 1, activeSheet.getLastColumn()).getValues();
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const row = rows[i];
-    const rowMaster = String(row[masterCol - 1] || '').trim();
-    const status = String(row[statusCol - 1] || '').toLowerCase().trim();
-    if (rowMaster !== id) continue;
-    if (status.indexOf('взята') === -1 && status.indexOf('на объекте') === -1) continue;
-    return i + 2;
-  }
-
-  return null;
-}
-
-/* ---------- Telegram text ---------- */
 
 function generateBriefText(order) {
   const city = escapeTelegramHtml(order.customerCity || 'не указан');
@@ -1167,10 +1203,12 @@ function generateFullText(order) {
   const cleaningType = escapeTelegramHtml(order['Тип уборки'] || 'не указан');
   const area = escapeTelegramHtml(order['Площадь (м²)'] || 'не указана');
   const dateTime = escapeTelegramHtml(formatDateTimeForDisplay(order['Дата уборки'], order['Время уборки']));
+
   const clientName = escapeTelegramHtml(order['Имя клиента'] || 'не указано');
   const rawClientPhone = String(order['Телефон клиента'] || '').trim();
   const clientPhone = escapeTelegramHtml(rawClientPhone || 'не указан');
   const phoneLink = buildPhoneLink(rawClientPhone);
+
   const orderTotal = escapeTelegramHtml(order['Сумма заказа'] || '0');
   const masterPay = escapeTelegramHtml(order['Зарплата мастерам'] || '0');
 
@@ -1194,6 +1232,7 @@ function generateFullText(order) {
   text += `📐 Площадь: ${area} м²\n`;
   text += `🗓 Дата и время: ${dateTime}\n`;
   text += `📍 Адрес: ${escapeTelegramHtml(fullAddress || 'не указан')}\n\n`;
+
   if (mapLink) {
     text += `🗺 2ГИС: ${escapeTelegramHtml(mapLink)}\n\n`;
   }
@@ -1211,7 +1250,7 @@ function generateFullText(order) {
   text += `Химия: ${escapeTelegramHtml(chemistry)}\n\n`;
 
   if (description) {
-    text += '<b>📝 ПОЖЕЛАНИЯ / ОПИСАНИЕ РАБОТ</b>\n';
+    text += '<b>📝 ДОПОЛНИТЕЛЬНОЕ ОПИСАНИЕ</b>\n';
     text += `${escapeTelegramHtml(description)}\n\n`;
   }
 
@@ -1233,6 +1272,7 @@ function generateFullText(order) {
 function buildClientReadyMessage(order) {
   const date = formatDateForDisplay(order['Дата уборки']);
   const time = formatTimeForDisplay(order['Время уборки']);
+
   const fullAddress = [
     String(order['Улица и дом'] || '').trim(),
     String(order['Квартира/офис'] || '').trim()
@@ -1247,6 +1287,7 @@ function buildClientReadyMessage(order) {
 
   if (fullAddress) msg += ` Адрес: ${fullAddress}.`;
   msg += ' До встречи!';
+
   return msg;
 }
 
@@ -1258,102 +1299,132 @@ function extractStreetOnly(address) {
 }
 
 function build2gisSearchLink(city, fullAddress) {
-  const query = [String(city || '').trim(), String(fullAddress || '').trim()]
-    .filter(Boolean)
-    .join(', ');
+  const query = [String(city || '').trim(), String(fullAddress || '').trim()].filter(Boolean).join(', ');
   if (!query) return '';
-  const longUrl = 'https://2gis.ru/search/' + encodeURIComponent(query);
-  return shortenUrlWithCache(longUrl);
+  return 'https://2gis.ru/search/' + encodeURIComponent(query);
 }
 
-function shortenUrlWithCache(url) {
-  const longUrl = String(url || '').trim();
-  if (!longUrl) return '';
+function buildPhoneLink(phone) {
+  const raw = String(phone || '').trim();
+  if (!raw) return '';
 
-  const cache = CacheService.getScriptCache();
-  const key = 'short_' + Utilities.base64EncodeWebSafe(longUrl).slice(0, 180);
-  const cached = cache.get(key);
-  if (cached) return cached;
-
-  const shortUrl = tryShortenUrl(longUrl) || longUrl;
-  cache.put(key, shortUrl, 6 * 60 * 60);
-  return shortUrl;
+  const digits = raw.replace(/[^\d+]/g, '');
+  if (!digits) return '';
+  return 'tel:' + digits;
 }
 
-function tryShortenUrl(url) {
-  const longUrl = String(url || '').trim();
-  if (!longUrl) return '';
+function buildTelegramShareUrl(text) {
+  const clean = String(text || '').trim();
+  if (!clean) return '';
+  return 'https://t.me/share/url?url=&text=' + encodeURIComponent(clean);
+}
 
-  try {
-    const resp = UrlFetchApp.fetch('https://tinyurl.com/api-create.php?url=' + encodeURIComponent(longUrl), {
-      method: 'get',
-      muteHttpExceptions: true,
-      followRedirects: true
-    });
-    const code = resp.getResponseCode();
-    const text = String(resp.getContentText() || '').trim();
-    if (code >= 200 && code < 300 && /^https?:\/\//i.test(text)) {
-      return text;
+/* ---------- Photo handling ---------- */
+
+function appendPhotoToOrder(rowNum, fileId, caption, unixTs) {
+  const sheet = getSheet();
+  const map = getHeaderMap(sheet);
+
+  const statusCol = map['Статус выполнения'] || REQUIRED_HEADERS.length;
+  const firstPhotoCol = statusCol + 1;
+  const lastCol = sheet.getLastColumn();
+
+  let photoCol = null;
+  for (let col = firstPhotoCol; col <= lastCol; col++) {
+    const val = sheet.getRange(1, col).getValue();
+    const header = String(val || '').trim();
+
+    if (!header) {
+      sheet.getRange(1, col).setValue('Фото ' + (col - firstPhotoCol + 1));
+      photoCol = col;
+      break;
     }
-  } catch (err) {}
 
-  return '';
-}
-
-function buildTelegramShareUrl(messageText) {
-  const text = String(messageText || '').trim();
-  if (!text) return '';
-  return 'https://t.me/share/url?url=&text=' + encodeURIComponent(text);
-}
-
-function buildPhoneLink(rawPhone) {
-  const source = String(rawPhone || '').trim();
-  if (!source) return '';
-
-  let normalized = source.replace(/[^\d+]/g, '');
-  if (normalized.indexOf('+') > 0) {
-    normalized = normalized.replace(/\+/g, '');
-  }
-  if (normalized && normalized[0] !== '+' && /^\d+$/.test(normalized)) {
-    normalized = '+' + normalized;
+    const cellValue = sheet.getRange(rowNum, col).getValue();
+    if (!cellValue) {
+      photoCol = col;
+      break;
+    }
   }
 
-  if (!/^\+?\d{6,20}$/.test(normalized)) return '';
-  return 'tel:' + normalized;
+  if (!photoCol) {
+    photoCol = lastCol + 1;
+    sheet.getRange(1, photoCol).setValue('Фото ' + (photoCol - firstPhotoCol + 1));
+  }
+
+  const dt = unixTs ? formatDateTime(new Date(Number(unixTs) * 1000)) : formatDateTime(new Date());
+  const info = [String(fileId || '').trim(), String(caption || '').trim(), dt].filter(Boolean).join(' | ');
+  sheet.getRange(rowNum, photoCol).setValue(info);
+
+  return { rowNum: rowNum, col: photoCol, info: info };
 }
+
+function forwardMasterPhotoToManager(token, message, savedInfo) {
+  const managerId = getManagerChatId();
+  if (!managerId) return;
+
+  const from = message.from || {};
+  const photos = message.photo || [];
+  const lastPhoto = photos.length ? photos[photos.length - 1] : null;
+  if (!lastPhoto || !lastPhoto.file_id) return;
+
+  const masterName = `${from.first_name || ''} ${from.last_name || ''}`.trim() || (from.username ? '@' + from.username : 'Мастер');
+  const caption = String(message.caption || '').trim();
+
+  let text = `📸 Фото от мастера: ${escapeTelegramHtml(masterName)}`;
+  if (savedInfo && savedInfo.info) {
+    text += `\nСохранено в таблицу: ${escapeTelegramHtml(savedInfo.info)}`;
+  }
+  if (caption) {
+    text += `\nКомментарий: ${escapeTelegramHtml(caption)}`;
+  }
+
+  urlFetchJson(`https://api.telegram.org/bot${token}/sendPhoto`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: managerId,
+      photo: lastPhoto.file_id,
+      caption: text,
+      parse_mode: 'HTML'
+    })
+  });
+}
+
+/* ---------- Manager notifications ---------- */
 
 function getManagerChatId() {
-  return String(
-    PROP.getProperty('TELEGRAM_MANAGER_CHAT_ID') ||
-    PROP.getProperty('TELEGRAM_ADMIN_CHAT_ID') ||
-    ''
-  ).trim();
+  return String(PROP.getProperty('TELEGRAM_MANAGER_CHAT_ID') || '').trim();
 }
 
 function notifyManagerNeedInvoice(order, masterName, arrivedAt) {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
-  const managerChatId = getManagerChatId();
-  if (!token || !managerChatId) return;
+  const managerId = getManagerChatId();
+  if (!token || !managerId) return;
 
   const orderId = escapeTelegramHtml(order['Номер заявки'] || '');
-  const fullAddress = [
-    String(order['Улица и дом'] || '').trim(),
-    String(order['Квартира/офис'] || '').trim()
-  ].filter(Boolean).join(', ');
-  const dateTime = formatDateTimeForDisplay(order['Дата уборки'], order['Время уборки']);
+  const city = escapeTelegramHtml(order['Город'] || '');
+  const type = escapeTelegramHtml(order['Тип уборки'] || '');
+  const total = escapeTelegramHtml(order['Сумма заказа'] || '0');
+  const addr = escapeTelegramHtml(String(order['Улица и дом'] || '').trim());
 
-  let text = '🔔 <b>Мастер прибыл на заказ</b>\n';
-  text += `Заявка: <code>${orderId}</code>\n`;
-  text += `Мастер: ${escapeTelegramHtml(masterName || 'Мастер')}\n`;
-  text += `Время отметки: ${escapeTelegramHtml(arrivedAt || '')}\n`;
-  text += `Дата и время заявки: ${escapeTelegramHtml(dateTime)}\n`;
-  text += `Адрес: ${escapeTelegramHtml(fullAddress || 'не указан')}\n`;
-  text += '\n💳 Пора сформировать счёт на оплату.';
+  const text = [
+    '🔔 <b>Мастер прибыл на объект</b>',
+    `Заявка: <code>${orderId}</code>`,
+    `Мастер: ${escapeTelegramHtml(masterName || 'Мастер')}`,
+    `Время прибытия: ${escapeTelegramHtml(arrivedAt || '')}`,
+    `Город: ${city}`,
+    `Вид уборки: ${type}`,
+    `Сумма заказа: ${total} руб`,
+    `Адрес: ${addr}`,
+    '',
+    'Сформируйте и отправьте ссылку на оплату через команду:',
+    `<code>/pay ${orderId} https://...</code>`
+  ].join('\n');
 
   urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'post',
     payload: JSON.stringify({
-      chat_id: managerChatId,
+      chat_id: managerId,
       text: text,
       parse_mode: 'HTML',
       disable_web_page_preview: true
@@ -1363,189 +1434,54 @@ function notifyManagerNeedInvoice(order, masterName, arrivedAt) {
 
 function notifyManagerOrderDone(order, masterName, doneAt) {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
-  const managerChatId = getManagerChatId();
-  if (!token || !managerChatId) return;
+  const managerId = getManagerChatId();
+  if (!token || !managerId) return;
 
   const orderId = escapeTelegramHtml(order['Номер заявки'] || '');
-  const text =
-    '✅ <b>Заявка завершена</b>\n' +
-    `Заявка: <code>${orderId}</code>\n` +
-    `Мастер: ${escapeTelegramHtml(masterName || 'Мастер')}\n` +
-    `Время: ${escapeTelegramHtml(doneAt || '')}`;
+  const text = [
+    '✅ <b>Заявка завершена</b>',
+    `Заявка: <code>${orderId}</code>`,
+    `Мастер: ${escapeTelegramHtml(masterName || 'Мастер')}`,
+    `Время завершения: ${escapeTelegramHtml(doneAt || '')}`
+  ].join('\n');
 
   urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'post',
     payload: JSON.stringify({
-      chat_id: managerChatId,
+      chat_id: managerId,
       text: text,
       parse_mode: 'HTML'
     })
   });
 }
 
-function notifyManagerOrderCancelled(order, masterName, cancelledAt, republishResult) {
+function notifyManagerOrderCancelled(order, masterName, cancelledAt, republish) {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
-  const managerChatId = getManagerChatId();
-  if (!token || !managerChatId) return;
+  const managerId = getManagerChatId();
+  if (!token || !managerId) return;
 
   const orderId = escapeTelegramHtml(order['Номер заявки'] || '');
-  const city = escapeTelegramHtml(order['Город'] || '');
-  const republishOk = republishResult && republishResult.ok ? 'да' : 'нет';
+  const republishState = republish && republish.ok ? 'Да' : 'Нет';
 
-  const text =
-    '⚠️ <b>Мастер отменил заявку</b>\n' +
-    `Заявка: <code>${orderId}</code>\n` +
-    `Город: ${city}\n` +
-    `Мастер: ${escapeTelegramHtml(masterName || 'Мастер')}\n` +
-    `Время: ${escapeTelegramHtml(cancelledAt || '')}\n` +
-    `Повторно отправлена в группу: ${escapeTelegramHtml(republishOk)}`;
+  const text = [
+    '⚠️ <b>Заявка отменена мастером</b>',
+    `Заявка: <code>${orderId}</code>`,
+    `Мастер: ${escapeTelegramHtml(masterName || 'Мастер')}`,
+    `Время отмены: ${escapeTelegramHtml(cancelledAt || '')}`,
+    `Возвращена в группу: ${republishState}`
+  ].join('\n');
 
   urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'post',
     payload: JSON.stringify({
-      chat_id: managerChatId,
+      chat_id: managerId,
       text: text,
       parse_mode: 'HTML'
     })
   });
 }
 
-function forwardMasterPhotoToManager(token, message, savedInfo) {
-  const managerChatId = getManagerChatId();
-  if (!token || !managerChatId || !message || !message.photo) return;
-
-  const photos = message.photo || [];
-  const lastPhoto = photos.length ? photos[photos.length - 1] : null;
-  const fileId = lastPhoto ? String(lastPhoto.file_id || '').trim() : '';
-  if (!fileId) return;
-
-  const from = message.from || {};
-  const masterName = `${from.first_name || ''} ${from.last_name || ''}`.trim() || (from.username ? '@' + from.username : 'Мастер');
-  const orderId = savedInfo && savedInfo.orderId ? String(savedInfo.orderId) : '';
-  const caption = String(message.caption || '').trim();
-
-  let text = '📷 <b>Фото от мастера</b>\n';
-  text += `Мастер: ${escapeTelegramHtml(masterName)}\n`;
-  if (orderId) text += `Заявка: <code>${escapeTelegramHtml(orderId)}</code>\n`;
-  if (caption) text += `Комментарий: ${escapeTelegramHtml(caption)}\n`;
-  text += `Время: ${escapeTelegramHtml(formatDateTime(new Date()))}`;
-
-  urlFetchJson(`https://api.telegram.org/bot${token}/sendPhoto`, {
-    method: 'post',
-    payload: JSON.stringify({
-      chat_id: managerChatId,
-      photo: fileId,
-      caption: text,
-      parse_mode: 'HTML'
-    })
-  });
-}
-
-function handleTextMessage(message, token) {
-  const text = String(message.text || '').trim();
-  if (!text) return jsonResponse({ ok: true, ignored: true, buildVersion: BUILD_VERSION }, 200);
-
-  const managerChatId = getManagerChatId();
-  const chatId = String((message.chat && message.chat.id) || '').trim();
-  const fromId = String((message.from && message.from.id) || '').trim();
-  const isManager = !!managerChatId && (chatId === managerChatId || fromId === managerChatId);
-
-  if (!isManager) {
-    return jsonResponse({ ok: true, ignored: true, buildVersion: BUILD_VERSION }, 200);
-  }
-
-  const helpText =
-    'Команды менеджера:\n' +
-    '/pay ORDER_ID ССЫЛКА_НА_ОПЛАТУ\n' +
-    'Пример:\n' +
-    '/pay CLN-12345678 https://example.com/pay/abc';
-
-  if (/^\/?(help|start)$/i.test(text)) {
-    urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'post',
-      payload: JSON.stringify({ chat_id: chatId, text: helpText })
-    });
-    return jsonResponse({ ok: true, action: 'help', buildVersion: BUILD_VERSION }, 200);
-  }
-
-  const pay = text.match(/^\/?(pay|оплата)\s+([A-Za-z0-9_-]+)\s+(https?:\/\/\S+)$/i);
-  if (!pay) {
-    return jsonResponse({ ok: true, ignored: true, buildVersion: BUILD_VERSION }, 200);
-  }
-
-  const orderId = String(pay[2] || '').trim();
-  const paymentUrl = String(pay[3] || '').trim();
-  const senderName =
-    `${(message.from && message.from.first_name) || ''} ${(message.from && message.from.last_name) || ''}`.trim() ||
-    ((message.from && message.from.username) ? '@' + message.from.username : 'Менеджер');
-
-  const result = sendPaymentLinkToMaster(orderId, paymentUrl, senderName);
-
-  if (result.ok) {
-    urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'post',
-      payload: JSON.stringify({
-        chat_id: chatId,
-        text: `✅ Ссылка на оплату отправлена мастеру по заявке ${orderId}`
-      })
-    });
-  } else {
-    urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'post',
-      payload: JSON.stringify({
-        chat_id: chatId,
-        text: `❌ Не удалось отправить ссылку по заявке ${orderId}: ${result.error || 'неизвестная ошибка'}`
-      })
-    });
-  }
-
-  return jsonResponse({ ok: true, action: 'pay', result: result, buildVersion: BUILD_VERSION }, 200);
-}
-
-function sendPaymentLinkToMaster(orderId, paymentUrl, managerName) {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
-  if (!token) return { ok: false, error: 'token_not_set' };
-
-  const rowNum = findOrderRowById(orderId);
-  if (!rowNum) return { ok: false, error: 'order_not_found' };
-
-  const order = getOrderByRow(rowNum);
-  const masterId = String(order['Master ID'] || '').trim();
-  if (!masterId) return { ok: false, error: 'master_not_assigned' };
-
-  const safeOrderId = escapeTelegramHtml(orderId);
-  const safeManagerName = escapeTelegramHtml(managerName || 'Менеджер');
-  const safeUrl = escapeTelegramHtml(paymentUrl);
-
-  const text =
-    '💳 <b>Ссылка на оплату</b>\n' +
-    `Заявка: <code>${safeOrderId}</code>\n` +
-    `Отправил: ${safeManagerName}\n` +
-    `Ссылка: ${safeUrl}`;
-
-  const resp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'post',
-    payload: JSON.stringify({
-      chat_id: masterId,
-      text: text,
-      parse_mode: 'HTML',
-      disable_web_page_preview: true
-    })
-  });
-
-  if (!resp || resp.ok !== true) {
-    return { ok: false, error: 'telegram_send_failed', telegram: resp || null };
-  }
-
-  const sheet = getSheet();
-  const map = getHeaderMap(sheet);
-  const mark = `Ссылка на оплату отправлена ${formatDateTime(new Date())}`;
-  setCellByHeader(sheet, rowNum, map, 'Статус выполнения', mark);
-
-  return { ok: true, orderId: orderId, masterId: masterId };
-}
-
-/* ---------- Callback parsing & dedupe ---------- */
+/* ---------- Callback parsing + dedupe ---------- */
 
 function makeCallbackData(action, orderId) {
   const actionName = String(action || '').trim().toLowerCase();
@@ -1554,15 +1490,10 @@ function makeCallbackData(action, orderId) {
   return `${actionName}|${id}`;
 }
 
-function makeTakeCallbackData(orderId) {
-  return makeCallbackData('take', orderId);
-}
-
 function parseCallbackActionData(data) {
   const raw = String(data || '').trim();
   if (!raw) return null;
 
-  // Основной формат: action|orderId
   const v2 = raw.match(/^(take|arrive|done|cancel)\|(.+)$/);
   if (v2) {
     const action = String(v2[1] || '').trim();
@@ -1570,7 +1501,6 @@ function parseCallbackActionData(data) {
     return (action && id) ? { action: action, orderId: id } : null;
   }
 
-  // Совместимость: action_orderId
   const v1 = raw.match(/^(take|arrive|done|cancel)_(.+)$/);
   if (v1) {
     const action = String(v1[1] || '').trim();
@@ -1578,23 +1508,17 @@ function parseCallbackActionData(data) {
     return (action && id) ? { action: action, orderId: id } : null;
   }
 
-  // Совместимость со старым форматом takev2|orderId
-  if (raw.indexOf('takev2|') === 0) {
-    const id = String(raw.split('|')[1] || '').trim();
+  const legacy = raw.match(/^takev2\|(.+)$/);
+  if (legacy) {
+    const id = String(legacy[1] || '').trim();
     return id ? { action: 'take', orderId: id } : null;
   }
 
-  // Терпимость к нестандартным разделителям
   const loose = raw.match(/^(take|arrive|done|cancel)[^A-Za-z0-9]+(.+)$/);
   if (loose) {
     const action = String(loose[1] || '').trim();
     const id = String(loose[2] || '').trim();
     return (action && id) ? { action: action, orderId: id } : null;
-  }
-
-  if (raw.indexOf('take_') === 0) {
-    const id = String(raw.replace(/^take_/, '') || '').trim();
-    return id ? { action: 'take', orderId: id } : null;
   }
 
   return null;
@@ -1609,29 +1533,29 @@ function isDuplicateCallback(callbackId) {
   const exists = cache.get(key);
   if (exists) return true;
 
-  cache.put(key, '1', 600);
+  cache.put(key, '1', CALLBACK_CACHE_TTL_SECONDS);
   return false;
 }
 
 function isMasterDmAlreadySent(orderId) {
   const id = String(orderId || '').trim();
   if (!id) return false;
-  const key = 'ORDER_DM_SENT_' + id;
-  return String(PROP.getProperty(key) || '').trim() !== '';
+  return String(PROP.getProperty(ORDER_DM_SENT_PREFIX + id) || '').trim() !== '';
 }
 
 function markMasterDmSent(orderId, masterId, messageIds) {
   const id = String(orderId || '').trim();
   if (!id) return;
+
   const by = String(masterId || '').trim() || 'unknown';
-  const msgIds = Array.isArray(messageIds)
+  const ids = Array.isArray(messageIds)
     ? messageIds.map(function(v) { return String(v || '').trim(); }).filter(Boolean)
     : [];
 
-  PROP.setProperty('ORDER_DM_SENT_' + id, by + '|' + formatDateTime(new Date()));
-  PROP.setProperty('ORDER_DM_META_' + id, JSON.stringify({
+  PROP.setProperty(ORDER_DM_SENT_PREFIX + id, by + '|' + formatDateTime(new Date()));
+  PROP.setProperty(ORDER_DM_META_PREFIX + id, JSON.stringify({
     chatId: by,
-    messageIds: msgIds,
+    messageIds: ids,
     ts: formatDateTime(new Date())
   }));
 }
@@ -1639,15 +1563,15 @@ function markMasterDmSent(orderId, masterId, messageIds) {
 function clearMasterDmSent(orderId) {
   const id = String(orderId || '').trim();
   if (!id) return;
-  PROP.deleteProperty('ORDER_DM_SENT_' + id);
-  PROP.deleteProperty('ORDER_DM_META_' + id);
+  PROP.deleteProperty(ORDER_DM_SENT_PREFIX + id);
+  PROP.deleteProperty(ORDER_DM_META_PREFIX + id);
 }
 
 function deleteMasterDmMessages(token, orderId) {
   const id = String(orderId || '').trim();
   if (!id) return;
 
-  const rawMeta = String(PROP.getProperty('ORDER_DM_META_' + id) || '').trim();
+  const rawMeta = String(PROP.getProperty(ORDER_DM_META_PREFIX + id) || '').trim();
   if (!rawMeta) return;
 
   const meta = tryParseJson(rawMeta);
@@ -1660,6 +1584,7 @@ function deleteMasterDmMessages(token, orderId) {
   for (let i = 0; i < messageIds.length; i++) {
     const msg = String(messageIds[i] || '').trim();
     if (!msg) continue;
+
     urlFetchJson(`https://api.telegram.org/bot${token}/deleteMessage`, {
       method: 'post',
       payload: JSON.stringify({
@@ -1670,7 +1595,7 @@ function deleteMasterDmMessages(token, orderId) {
   }
 }
 
-/* ---------- Telegram API ---------- */
+/* ---------- Telegram API helpers ---------- */
 
 function checkTelegramBotStatus() {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
@@ -1679,32 +1604,38 @@ function checkTelegramBotStatus() {
       ok: false,
       error: 'TELEGRAM_BOT_TOKEN не задан в Script Properties',
       buildVersion: BUILD_VERSION
-    }, 200);
+    });
   }
 
-  const resp = urlFetchJson(`https://api.telegram.org/bot${token}/getMe`, { method: 'get' });
+  ensureWebhookBoundToCurrentExec(false);
 
-  if (!resp || resp.ok !== true || !resp.result) {
+  const me = urlFetchJson(`https://api.telegram.org/bot${token}/getMe`, { method: 'get' });
+  if (!me || me.ok !== true || !me.result) {
     return jsonResponse({
       ok: false,
       error: 'Ошибка Telegram API',
-      telegram: resp || null,
+      telegram: me || null,
       buildVersion: BUILD_VERSION
-    }, 200);
+    });
   }
+
+  const webhookInfo = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
 
   return jsonResponse({
     ok: true,
     bot: {
-      id: resp.result.id,
-      username: resp.result.username,
-      first_name: resp.result.first_name
+      id: me.result.id,
+      username: me.result.username,
+      first_name: me.result.first_name
     },
+    webhookInfo: webhookInfo || null,
     buildVersion: BUILD_VERSION
-  }, 200);
+  });
 }
 
 function answerCallback(token, callbackId, text) {
+  if (!callbackId) return;
+
   try {
     urlFetchJson(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
       method: 'post',
@@ -1734,11 +1665,94 @@ function urlFetchJson(url, options) {
   try {
     return JSON.parse(text);
   } catch (err) {
-    return { ok: false, raw: text, statusCode: resp.getResponseCode() };
+    return {
+      ok: false,
+      raw: text,
+      statusCode: resp.getResponseCode()
+    };
   }
 }
 
-/* ---------- Formatting ---------- */
+/* ---------- Reminders ---------- */
+
+function sendReminders() {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  if (!token) return;
+
+  const sheet = getSheet();
+  const map = getHeaderMap(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  const now = new Date();
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const twoHoursMs = 2 * 60 * 60 * 1000;
+  const reminderWindowMs = 20 * 60 * 1000;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+
+    const status = String(getCellFromRowByHeader(row, map, 'Статус') || '').toLowerCase();
+    if (status.indexOf('взята') === -1 && status.indexOf('на объекте') === -1) continue;
+
+    const masterId = String(getCellFromRowByHeader(row, map, 'Master ID') || '').trim();
+    if (!masterId) continue;
+
+    const orderId = String(getCellFromRowByHeader(row, map, 'Номер заявки') || '').trim();
+    const dateValue = getCellFromRowByHeader(row, map, 'Дата уборки');
+    const timeValue = getCellFromRowByHeader(row, map, 'Время уборки');
+
+    const dt = parseOrderDateTime(dateValue, timeValue);
+    if (!dt) continue;
+
+    const diff = dt.getTime() - now.getTime();
+
+    const sent24h = String(getCellFromRowByHeader(row, map, 'Напоминание 24ч') || '').trim();
+    const sent2h = String(getCellFromRowByHeader(row, map, 'Напоминание 2ч') || '').trim();
+
+    if (!sent24h && diff <= dayMs && diff > dayMs - reminderWindowMs) {
+      const text = [
+        '⏰ <b>Напоминание за 24 часа</b>',
+        `Заявка: <code>${escapeTelegramHtml(orderId)}</code>`,
+        `Дата и время: ${escapeTelegramHtml(formatDateTimeForDisplay(dateValue, timeValue))}`
+      ].join('\n');
+
+      urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'post',
+        payload: JSON.stringify({
+          chat_id: masterId,
+          text: text,
+          parse_mode: 'HTML'
+        })
+      });
+
+      setCellByHeader(sheet, i + 2, map, 'Напоминание 24ч', 'Отправлено ' + formatDateTime(new Date()));
+    }
+
+    if (!sent2h && diff <= twoHoursMs && diff > twoHoursMs - reminderWindowMs) {
+      const text2 = [
+        '🚨 <b>Напоминание за 2 часа</b>',
+        `Заявка: <code>${escapeTelegramHtml(orderId)}</code>`,
+        `Дата и время: ${escapeTelegramHtml(formatDateTimeForDisplay(dateValue, timeValue))}`
+      ].join('\n');
+
+      urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'post',
+        payload: JSON.stringify({
+          chat_id: masterId,
+          text: text2,
+          parse_mode: 'HTML'
+        })
+      });
+
+      setCellByHeader(sheet, i + 2, map, 'Напоминание 2ч', 'Отправлено ' + formatDateTime(new Date()));
+    }
+  }
+}
+
+/* ---------- Date/time normalization ---------- */
 
 function pad2(v) {
   return String(v).padStart(2, '0');
@@ -1893,6 +1907,7 @@ function parseOrderDateTime(dateValue, timeValue) {
   const day = Number(dmY[1]);
   const month = Number(dmY[2]) - 1;
   const year = Number(dmY[3]);
+
   let hour = 0;
   let minute = 0;
 
@@ -1914,27 +1929,26 @@ function normalizeCustomerName(value) {
   return raw.split(/\s+/)[0];
 }
 
-/* ---------- Routing / config ---------- */
+/* ---------- Chat resolve ---------- */
 
 function normalizeCityKey(city) {
-  return String(city || '')
-    .toLowerCase()
-    .replace(/\./g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return String(city || '').trim().toLowerCase();
 }
 
-function resolveTelegramChat(city, fallbackFromPayload) {
-  const key = normalizeCityKey(city);
+function resolveTelegramChat(city, fallbackTelegramChannel) {
+  const cityKey = normalizeCityKey(city);
 
   const cityMap = {
     'новосибирск': String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim()
   };
 
-  const cityChat = cityMap[key] || '';
-  const fallback = String(fallbackFromPayload || PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
-  return String(cityChat || fallback).trim();
+  const cityChat = cityMap[cityKey] || '';
+  const fallback = String(fallbackTelegramChannel || PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
+
+  return String(cityChat || fallback || '').trim();
 }
+
+/* ---------- Webhook resolve ---------- */
 
 function getCurrentServiceExecUrl() {
   try {
@@ -1963,10 +1977,53 @@ function resolveWebhookExecUrl(preferredUrl) {
   const stored = normalizeWebhookUrlToExec(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY));
   if (stored) return stored;
 
-  const def = normalizeWebhookUrlToExec(DEFAULT_WEBAPP_EXEC_URL);
-  if (def) return def;
-
   return '';
+}
+
+function ensureWebhookBoundToCurrentExec(force) {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  if (!token) return { ok: false, reason: 'token_not_set' };
+
+  const targetUrl = normalizeWebhookUrlToExec(getCurrentServiceExecUrl()) || resolveWebhookExecUrl('');
+  if (!targetUrl) return { ok: false, reason: 'exec_url_not_set' };
+
+  const nowTs = Date.now();
+  const lastTs = Number(PROP.getProperty(WEBHOOK_LAST_SYNC_TS_PROPERTY) || '0');
+  const tooSoon = !force && lastTs > 0 && (nowTs - lastTs) < 3 * 60 * 1000;
+
+  if (tooSoon) {
+    return { ok: true, skipped: true, reason: 'recently_checked', targetUrl: targetUrl };
+  }
+
+  const info = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
+  const currentWebhookUrl = info && info.result && info.result.url
+    ? normalizeWebhookUrlToExec(info.result.url)
+    : '';
+
+  if (currentWebhookUrl !== targetUrl) {
+    const setResp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
+      method: 'post',
+      payload: JSON.stringify({
+        url: targetUrl,
+        allowed_updates: ['message', 'edited_message', 'callback_query']
+      })
+    });
+
+    if (!setResp || setResp.ok !== true) {
+      Logger.log('ensureWebhookBoundToCurrentExec setWebhook failed: ' + JSON.stringify(setResp || null));
+      return { ok: false, reason: 'set_webhook_failed', targetUrl: targetUrl, telegram: setResp || null };
+    }
+  }
+
+  PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, targetUrl);
+  PROP.setProperty(WEBHOOK_LAST_SYNC_TS_PROPERTY, String(nowTs));
+
+  return {
+    ok: true,
+    changed: currentWebhookUrl !== targetUrl,
+    targetUrl: targetUrl,
+    webhookUrl: currentWebhookUrl
+  };
 }
 
 /* ---------- Diagnostics & setup ---------- */
@@ -1978,18 +2035,22 @@ function __setSpreadsheetId(spreadsheetId) {
   PROP.setProperty('SPREADSHEET_ID', id);
   const sheet = getSheet();
 
-  return {
+  const out = {
     ok: true,
     spreadsheetId: id,
     sheetName: sheet.getName(),
     buildVersion: BUILD_VERSION
   };
+  Logger.log(JSON.stringify(out));
+  return out;
 }
 
 function __setManagerChatId(chatId) {
   const id = String(chatId || '').trim();
   if (!id) throw new Error('Передайте chatId');
+
   PROP.setProperty('TELEGRAM_MANAGER_CHAT_ID', id);
+
   const out = { ok: true, telegramManagerChatId: id, buildVersion: BUILD_VERSION };
   Logger.log(JSON.stringify(out));
   return out;
@@ -2005,7 +2066,6 @@ function __checkConfiguration() {
     telegramManagerChatId: getManagerChatId() || 'NOT_SET',
     storedWebAppExecUrl: String(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY) || '').trim() || 'NOT_SET',
     serviceExecUrl: getCurrentServiceExecUrl(),
-    defaultWebAppExecUrl: DEFAULT_WEBAPP_EXEC_URL,
     resolvedWebhookExecUrl: resolveWebhookExecUrl('')
   };
 
@@ -2017,12 +2077,14 @@ function __checkSheetHeaders() {
   const sheet = getSheet();
   const map = getHeaderMap(sheet);
   const missing = REQUIRED_HEADERS.filter(function(h) { return !map[h]; });
+
   const out = {
     ok: missing.length === 0,
     missing: missing,
     sheetName: sheet.getName(),
     buildVersion: BUILD_VERSION
   };
+
   Logger.log(JSON.stringify(out));
   return out;
 }
@@ -2045,14 +2107,11 @@ function __normalizeCreatedAtColumn() {
   for (let i = 0; i < values.length; i++) {
     const prev = values[i][0];
     const norm = normalizeCreatedAtValue(prev);
+
     if (String(prev || '') !== String(norm || '')) {
-      values[i][0] = norm;
+      sheet.getRange(i + 2, col).setValue(norm);
       updated++;
     }
-  }
-
-  if (updated > 0) {
-    sheet.getRange(2, col, values.length, 1).setValues(values);
   }
 
   const out = { ok: true, updated: updated, buildVersion: BUILD_VERSION };
@@ -2060,151 +2119,7 @@ function __normalizeCreatedAtColumn() {
   return out;
 }
 
-function __normalizeOrderDateTimeColumns() {
-  const sheet = getSheet();
-  const map = getHeaderMap(sheet);
-  const dateCol = map['Дата уборки'];
-  const timeCol = map['Время уборки'];
-  const lastRow = sheet.getLastRow();
-
-  if (!dateCol || !timeCol || lastRow < 2) {
-    const out = { ok: true, updatedDate: 0, updatedTime: 0, buildVersion: BUILD_VERSION };
-    Logger.log(JSON.stringify(out));
-    return out;
-  }
-
-  const dateValues = sheet.getRange(2, dateCol, lastRow - 1, 1).getValues();
-  const timeValues = sheet.getRange(2, timeCol, lastRow - 1, 1).getValues();
-
-  let updatedDate = 0;
-  let updatedTime = 0;
-
-  for (let i = 0; i < dateValues.length; i++) {
-    const prevDate = dateValues[i][0];
-    const prevTime = timeValues[i][0];
-
-    const normDate = normalizeOrderDateValue(prevDate);
-    const normTime = normalizeOrderTimeValue(prevTime);
-
-    if (String(prevDate || '') !== String(normDate || '')) {
-      dateValues[i][0] = normDate;
-      updatedDate++;
-    }
-
-    if (String(prevTime || '') !== String(normTime || '')) {
-      timeValues[i][0] = normTime;
-      updatedTime++;
-    }
-  }
-
-  if (updatedDate > 0) {
-    sheet.getRange(2, dateCol, dateValues.length, 1).setValues(dateValues);
-  }
-
-  if (updatedTime > 0) {
-    sheet.getRange(2, timeCol, timeValues.length, 1).setValues(timeValues);
-  }
-
-  const out = { ok: true, updatedDate: updatedDate, updatedTime: updatedTime, buildVersion: BUILD_VERSION };
-  Logger.log(JSON.stringify(out));
-  return out;
-}
-
-function sendReminders() {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
-  if (!token) {
-    const out = { ok: false, error: 'TELEGRAM_BOT_TOKEN not set', buildVersion: BUILD_VERSION };
-    Logger.log(JSON.stringify(out));
-    return out;
-  }
-
-  const sheet = getSheet();
-  const headerMap = getHeaderMap(sheet);
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) {
-    const out = { ok: true, scanned: 0, sent24h: 0, sent2h: 0, buildVersion: BUILD_VERSION };
-    Logger.log(JSON.stringify(out));
-    return out;
-  }
-
-  const rows = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
-  const now = new Date();
-  const dayMs = 24 * 60 * 60 * 1000;
-  const twoHoursMs = 2 * 60 * 60 * 1000;
-  let sent24h = 0;
-  let sent2h = 0;
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const rowNum = i + 2;
-
-    const status = String(getCellFromRowByHeader(row, headerMap, 'Статус') || '').toLowerCase().trim();
-    const orderId = String(getCellFromRowByHeader(row, headerMap, 'Номер заявки') || '').trim();
-    const masterId = String(getCellFromRowByHeader(row, headerMap, 'Master ID') || '').trim();
-    const dateValue = getCellFromRowByHeader(row, headerMap, 'Дата уборки');
-    const timeValue = getCellFromRowByHeader(row, headerMap, 'Время уборки');
-    const mark24h = String(getCellFromRowByHeader(row, headerMap, 'Напоминание 24ч') || '').trim();
-    const mark2h = String(getCellFromRowByHeader(row, headerMap, 'Напоминание 2ч') || '').trim();
-
-    if (!orderId || !masterId) continue;
-    if (status.indexOf('отмен') !== -1 || status.indexOf('заверш') !== -1) continue;
-    if (status.indexOf('взята') === -1 && status.indexOf('на объекте') === -1) continue;
-
-    const dt = parseOrderDateTime(dateValue, timeValue);
-    if (!dt) continue;
-
-    const diffMs = dt.getTime() - now.getTime();
-    if (diffMs <= 0) continue;
-
-    if (!mark24h && diffMs <= dayMs && diffMs > twoHoursMs) {
-      const text =
-        `⏰ <b>Напоминание за 24 часа</b>\n` +
-        `Заявка <code>${escapeTelegramHtml(orderId)}</code> завтра в ${escapeTelegramHtml(formatDateTimeForDisplay(dateValue, timeValue))}.`;
-
-      urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'post',
-        payload: JSON.stringify({
-          chat_id: masterId,
-          text: text,
-          parse_mode: 'HTML'
-        })
-      });
-
-      setCellByHeader(sheet, rowNum, headerMap, 'Напоминание 24ч', 'Отправлено ' + formatDateTime(now));
-      sent24h++;
-    }
-
-    if (!mark2h && diffMs <= twoHoursMs && diffMs > 0) {
-      const text =
-        `🚨 <b>Напоминание за 2 часа</b>\n` +
-        `Заявка <code>${escapeTelegramHtml(orderId)}</code> скоро начнется: ${escapeTelegramHtml(formatDateTimeForDisplay(dateValue, timeValue))}.`;
-
-      urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'post',
-        payload: JSON.stringify({
-          chat_id: masterId,
-          text: text,
-          parse_mode: 'HTML'
-        })
-      });
-
-      setCellByHeader(sheet, rowNum, headerMap, 'Напоминание 2ч', 'Отправлено ' + formatDateTime(now));
-      sent2h++;
-    }
-  }
-
-  const out = {
-    ok: true,
-    scanned: rows.length,
-    sent24h: sent24h,
-    sent2h: sent2h,
-    buildVersion: BUILD_VERSION
-  };
-  Logger.log(JSON.stringify(out));
-  return out;
-}
-
-function __installReminderTrigger() {
+function __setupReminderTrigger() {
   const triggers = ScriptApp.getProjectTriggers();
   for (let i = 0; i < triggers.length; i++) {
     if (triggers[i].getHandlerFunction() === 'sendReminders') {
@@ -2222,6 +2137,7 @@ function __installReminderTrigger() {
     triggerId: trigger && trigger.getUniqueId ? trigger.getUniqueId() : '',
     buildVersion: BUILD_VERSION
   };
+
   Logger.log(JSON.stringify(out));
   return out;
 }
@@ -2229,6 +2145,7 @@ function __installReminderTrigger() {
 function __removeReminderTrigger() {
   let removed = 0;
   const triggers = ScriptApp.getProjectTriggers();
+
   for (let i = 0; i < triggers.length; i++) {
     if (triggers[i].getHandlerFunction() === 'sendReminders') {
       ScriptApp.deleteTrigger(triggers[i]);
@@ -2261,9 +2178,7 @@ function __setWebhookProd() {
     })
   });
 
-  const info = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, {
-    method: 'get'
-  });
+  const info = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
 
   PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, url);
   PROP.setProperty(WEBHOOK_LAST_SYNC_TS_PROPERTY, String(Date.now()));
@@ -2282,21 +2197,20 @@ function __setWebhookProd() {
 }
 
 function __setWebAppExecUrl(url) {
-  const normalized =
-    normalizeWebhookUrlToExec(url) ||
-    normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
-
+  const normalized = normalizeWebhookUrlToExec(url) || normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
   if (!normalized) {
     throw new Error('Не удалось определить URL Web App. Укажите /exec URL вручную.');
   }
 
   PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, normalized);
+
   const out = {
     ok: true,
     storedWebAppExecUrl: normalized,
     resolvedWebhookExecUrl: resolveWebhookExecUrl(''),
     buildVersion: BUILD_VERSION
   };
+
   Logger.log(JSON.stringify(out));
   return out;
 }
@@ -2305,15 +2219,9 @@ function __getTelegramWebhookInfo() {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
 
-  const info = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, {
-    method: 'get'
-  });
+  const info = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
 
-  const out = {
-    buildVersion: BUILD_VERSION,
-    webhookInfo: info
-  };
-
+  const out = { buildVersion: BUILD_VERSION, webhookInfo: info };
   Logger.log(JSON.stringify(out));
   return out;
 }
@@ -2324,7 +2232,7 @@ function __hardResetBotRouting() {
 
 function __probeWebhookDoPostVersion(targetUrl) {
   const url = resolveWebhookExecUrl(targetUrl || '');
-  if (!url) return { ok: false, error: 'webhook url not available' };
+  if (!url) return { ok: false, error: 'webhook url not available', buildVersion: BUILD_VERSION };
 
   try {
     const resp = UrlFetchApp.fetch(url, {
@@ -2358,9 +2266,58 @@ function __probeWebhookDoPostVersion(targetUrl) {
   }
 }
 
-/* ---------- Helpers ---------- */
+function __testTelegramSend() {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const chat = String(
+    PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') ||
+    PROP.getProperty('TELEGRAM_CHAT_ID') ||
+    ''
+  ).trim();
 
-function jsonResponse(obj, code) {
+  if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
+  if (!chat) throw new Error('TELEGRAM_CHAT_NOVOSIBIRSK/TELEGRAM_CHAT_ID не задан в Script Properties');
+
+  const resp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: chat,
+      text: '✅ Тест Telegram из Apps Script. build=' + BUILD_VERSION
+    })
+  });
+
+  Logger.log(JSON.stringify(resp));
+  return resp;
+}
+
+function __testCreateOrder() {
+  const payload = {
+    action: 'create',
+    orderId: 'TEST-' + Date.now().toString().slice(-8),
+    manager: 'Тест',
+    customerName: 'Тест',
+    customerPhone: '+79990000000',
+    customerCity: 'Новосибирск',
+    customerAddress: 'Тестовая улица, 1',
+    customerFlat: '',
+    orderDate: formatDate(new Date()),
+    orderTime: formatTime(new Date(new Date().getTime() + 2 * 60 * 60 * 1000)),
+    orderTotal: '1000',
+    masterPay: '600',
+    cleaningType: 'Тест',
+    area: '10',
+    chemistry: '—',
+    equipment: '—',
+    worksDescription: 'Тестовая заявка'
+  };
+
+  const resp = createOrUpdateOrder(payload, 'create');
+  Logger.log(resp.getContent());
+  return resp;
+}
+
+/* ---------- Utils ---------- */
+
+function jsonResponse(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj || {}))
     .setMimeType(ContentService.MimeType.JSON);
