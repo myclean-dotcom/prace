@@ -1,6 +1,6 @@
 // Code.gs - стабильный backend для заявок + Telegram кнопок
 
-const BUILD_VERSION = '2026-02-19-clean-rewrite-v1';
+const BUILD_VERSION = '2026-02-19-clean-rewrite-v2';
 
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
@@ -355,7 +355,7 @@ function getCellFromRowByHeader(rowValues, headerMap, headerName) {
 }
 
 function findOrderRowById(orderId) {
-  const target = String(orderId || '').trim();
+  const target = normalizeOrderIdLoose(orderId);
   if (!target) return null;
 
   const sheet = getSheet();
@@ -367,7 +367,8 @@ function findOrderRowById(orderId) {
 
   const values = sheet.getRange(2, col, lastRow - 1, 1).getValues();
   for (let i = 0; i < values.length; i++) {
-    if (String(values[i][0] || '').trim() === target) {
+    const candidate = normalizeOrderIdLoose(values[i][0]);
+    if (candidate && candidate === target) {
       return i + 2;
     }
   }
@@ -388,13 +389,22 @@ function findOrderRowByTelegramMessage(chatId, messageId) {
 
   if (!chatCol || !msgCol || lastRow < 2) return null;
 
-  const rows = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    if (
-      String(row[chatCol - 1] || '').trim() === chat &&
-      String(row[msgCol - 1] || '').trim() === msg
-    ) {
+  const chatValues = sheet.getRange(2, chatCol, lastRow - 1, 1).getValues();
+  const msgValues = sheet.getRange(2, msgCol, lastRow - 1, 1).getValues();
+
+  const msgNum = normalizeNumericString(msg);
+
+  for (let i = 0; i < chatValues.length; i++) {
+    const chatCandidate = String(chatValues[i][0] || '').trim();
+    const msgCandidate = String(msgValues[i][0] || '').trim();
+
+    if (chatCandidate !== chat) continue;
+
+    if (msgCandidate === msg) {
+      return i + 2;
+    }
+
+    if (msgNum && normalizeNumericString(msgCandidate) === msgNum) {
       return i + 2;
     }
   }
@@ -414,11 +424,12 @@ function findActiveOrderRowByMasterId(masterId) {
 
   if (!idCol || !statusCol || lastRow < 2) return null;
 
-  const rows = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const row = rows[i];
-    const id = String(row[idCol - 1] || '').trim();
-    const status = String(row[statusCol - 1] || '').toLowerCase().trim();
+  const idValues = sheet.getRange(2, idCol, lastRow - 1, 1).getValues();
+  const statusValues = sheet.getRange(2, statusCol, lastRow - 1, 1).getValues();
+
+  for (let i = idValues.length - 1; i >= 0; i--) {
+    const id = String(idValues[i][0] || '').trim();
+    const status = String(statusValues[i][0] || '').toLowerCase().trim();
     if (!id || id !== target) continue;
 
     if (status.indexOf('взята') === -1 && status.indexOf('на объекте') === -1) continue;
@@ -708,7 +719,7 @@ function handleCallbackQuery(cb, token) {
   const callbackId = String(cb.id || '').trim();
   const data = String(cb.data || '').trim();
   const from = cb.from || {};
-  const message = cb.message || {};
+  const message = cb.message || cb.inaccessible_message || {};
 
   const cbChatId = message.chat ? String(message.chat.id || '') : '';
   const cbMessageId = String(message.message_id || '');
@@ -718,7 +729,17 @@ function handleCallbackQuery(cb, token) {
     return jsonResponse({ ok: true, duplicate: true, buildVersion: BUILD_VERSION });
   }
 
-  const parsed = parseCallbackActionData(data);
+  let parsed = parseCallbackActionData(data);
+  const orderIdFromMessageText = extractOrderIdFromTelegramMessage(message);
+  if (parsed && !String(parsed.orderId || '').trim() && orderIdFromMessageText) {
+    parsed.orderId = orderIdFromMessageText;
+  }
+
+  if (!parsed && orderIdFromMessageText) {
+    // Совместимость со старыми сообщениями, где callback_data был без id.
+    parsed = { action: 'take', orderId: orderIdFromMessageText };
+  }
+
   try { Logger.log('callback_query raw=' + data + ' parsed=' + JSON.stringify(parsed || null)); } catch (err) {}
 
   if (!parsed) {
@@ -733,8 +754,7 @@ function handleCallbackQuery(cb, token) {
   }
 
   try {
-    let rowNum = findOrderRowById(parsed.orderId);
-    if (!rowNum) rowNum = findOrderRowByTelegramMessage(cbChatId, cbMessageId);
+    let rowNum = resolveRowForCallback(parsed, message, cbChatId, cbMessageId);
 
     if (!rowNum) {
       answerCallback(token, callbackId, '❌ Заявка не найдена');
@@ -1491,35 +1511,121 @@ function makeCallbackData(action, orderId) {
 }
 
 function parseCallbackActionData(data) {
-  const raw = String(data || '').trim();
+  const raw = normalizeCallbackRawData(data);
   if (!raw) return null;
 
   const v2 = raw.match(/^(take|arrive|done|cancel)\|(.+)$/);
   if (v2) {
     const action = String(v2[1] || '').trim();
-    const id = String(v2[2] || '').trim();
+    const id = normalizeOrderIdLoose(v2[2]);
     return (action && id) ? { action: action, orderId: id } : null;
   }
 
   const v1 = raw.match(/^(take|arrive|done|cancel)_(.+)$/);
   if (v1) {
     const action = String(v1[1] || '').trim();
-    const id = String(v1[2] || '').trim();
+    const id = normalizeOrderIdLoose(v1[2]);
     return (action && id) ? { action: action, orderId: id } : null;
   }
 
   const legacy = raw.match(/^takev2\|(.+)$/);
   if (legacy) {
-    const id = String(legacy[1] || '').trim();
+    const id = normalizeOrderIdLoose(legacy[1]);
     return id ? { action: 'take', orderId: id } : null;
   }
 
   const loose = raw.match(/^(take|arrive|done|cancel)[^A-Za-z0-9]+(.+)$/);
   if (loose) {
     const action = String(loose[1] || '').trim();
-    const id = String(loose[2] || '').trim();
+    const id = normalizeOrderIdLoose(loose[2]);
     return (action && id) ? { action: action, orderId: id } : null;
   }
+
+  // Старые/битые данные вида "take", "take_" и т.п.
+  if (/^(take|arrive|done|cancel)\b/.test(raw)) {
+    const action = String(raw.match(/^(take|arrive|done|cancel)\b/)[1] || '').trim();
+    const id = normalizeOrderIdLoose(raw.replace(/^(take|arrive|done|cancel)\b/, ''));
+    return { action: action, orderId: id || '' };
+  }
+
+  return null;
+}
+
+function normalizeCallbackRawData(data) {
+  const raw = String(data || '').trim();
+  if (!raw) return '';
+
+  if (raw[0] === '{' && raw[raw.length - 1] === '}') {
+    try {
+      const obj = JSON.parse(raw);
+      if (obj && typeof obj === 'object') {
+        const action = String(obj.action || obj.a || '').trim().toLowerCase();
+        const orderId = normalizeOrderIdLoose(obj.orderId || obj.id || '');
+        if (action && orderId) return action + '|' + orderId;
+      }
+    } catch (err) {}
+  }
+
+  if (raw.indexOf('%') !== -1) {
+    try {
+      const decoded = decodeURIComponent(raw);
+      if (decoded && decoded !== raw) return String(decoded).trim();
+    } catch (err) {}
+  }
+
+  return raw;
+}
+
+function normalizeOrderIdLoose(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  // Частый формат: "CLN-12345678|v7" -> берем только id.
+  const cleaned = raw.split('|')[0].split(',')[0].split(' ')[0].trim();
+  const strict = cleaned.match(/^([A-Za-z]{2,8}-\d{5,})$/i);
+  if (strict) return strict[1].toUpperCase();
+
+  // Поиск id внутри произвольного текста.
+  const inside = raw.match(/([A-Za-z]{2,8}-\d{5,})/i);
+  if (inside) return String(inside[1] || '').toUpperCase();
+
+  return cleaned.toUpperCase();
+}
+
+function extractOrderIdFromTelegramMessage(message) {
+  const text = String((message && (message.text || message.caption)) || '').trim();
+  if (!text) return '';
+
+  // Пример: "ЗАЯВКА №CLN-12345678"
+  const m = text.match(/(?:№|#)\s*([A-Za-z]{2,8}-\d{5,})/i);
+  if (m && m[1]) return String(m[1]).trim().toUpperCase();
+
+  const any = text.match(/([A-Za-z]{2,8}-\d{5,})/i);
+  return any && any[1] ? String(any[1]).trim().toUpperCase() : '';
+}
+
+function normalizeNumericString(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const onlyDigits = raw.replace(/[^\d]/g, '');
+  return onlyDigits || '';
+}
+
+function resolveRowForCallback(parsed, message, cbChatId, cbMessageId) {
+  const parsedOrderId = normalizeOrderIdLoose(parsed && parsed.orderId);
+  if (parsedOrderId) {
+    const byId = findOrderRowById(parsedOrderId);
+    if (byId) return byId;
+  }
+
+  const fromMessage = extractOrderIdFromTelegramMessage(message);
+  if (fromMessage) {
+    const byTextId = findOrderRowById(fromMessage);
+    if (byTextId) return byTextId;
+  }
+
+  const byMsg = findOrderRowByTelegramMessage(cbChatId, cbMessageId);
+  if (byMsg) return byMsg;
 
   return null;
 }
