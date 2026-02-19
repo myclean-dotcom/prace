@@ -1,6 +1,6 @@
 // Code.gs - чистый backend для заявок + Telegram кнопок
 
-const BUILD_VERSION = '2026-02-19-button-rewrite-v1';
+const BUILD_VERSION = '2026-02-19-button-rewrite-v2';
 
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
@@ -1876,11 +1876,11 @@ function resolveWebhookExecUrl(preferredUrl) {
   const preferred = normalizeWebhookUrlToExec(preferredUrl);
   if (preferred) return preferred;
 
-  const service = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
-  if (service) return service;
-
   const stored = normalizeWebhookUrlToExec(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY));
   if (stored) return stored;
+
+  const service = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
+  if (service) return service;
 
   return '';
 }
@@ -2126,6 +2126,223 @@ function __getTelegramWebhookInfo() {
   const out = { ok: true, buildVersion: BUILD_VERSION, webhookInfo: info };
   Logger.log(JSON.stringify(out));
   return out;
+}
+
+function __checkAllButtonReasons(targetUrl) {
+  const out = {
+    ok: true,
+    buildVersion: BUILD_VERSION,
+    checkedAt: formatDateTime(new Date()),
+    checks: {},
+    failures: [],
+    warnings: [],
+    advice: []
+  };
+
+  const pushFailure = function(message, advice) {
+    out.ok = false;
+    out.failures.push(message);
+    if (advice) out.advice.push(advice);
+  };
+  const pushWarning = function(message, advice) {
+    out.warnings.push(message);
+    if (advice) out.advice.push(advice);
+  };
+
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const spreadsheetId = String(PROP.getProperty('SPREADSHEET_ID') || '').trim();
+  const chatNovosibirsk = String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim();
+  const chatFallback = String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
+  const managerChatId = String(PROP.getProperty('TELEGRAM_MANAGER_CHAT_ID') || '').trim();
+
+  const serviceExecUrl = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
+  const storedExecUrl = normalizeWebhookUrlToExec(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY));
+  const resolvedExecUrl = normalizeWebhookUrlToExec(resolveWebhookExecUrl(targetUrl || ''));
+
+  out.checks.properties = {
+    tokenSet: !!token,
+    spreadsheetIdSet: !!spreadsheetId,
+    telegramChatNovosibirskSet: !!chatNovosibirsk,
+    telegramChatFallbackSet: !!chatFallback,
+    managerChatIdSet: !!managerChatId
+  };
+  out.checks.urls = {
+    serviceExecUrl: serviceExecUrl || '',
+    storedExecUrl: storedExecUrl || '',
+    resolvedExecUrl: resolvedExecUrl || ''
+  };
+
+  if (!token) {
+    pushFailure('TELEGRAM_BOT_TOKEN не задан.', 'Добавьте TELEGRAM_BOT_TOKEN в Script Properties.');
+  }
+  if (!spreadsheetId) {
+    pushFailure('SPREADSHEET_ID не задан.', 'Добавьте SPREADSHEET_ID в Script Properties.');
+  }
+  if (!chatNovosibirsk && !chatFallback) {
+    pushFailure('Не задан chat id для публикации заявок.', 'Добавьте TELEGRAM_CHAT_NOVOSIBIRSK или TELEGRAM_CHAT_ID.');
+  }
+  if (!resolvedExecUrl) {
+    pushFailure('Не удалось определить Web App URL (/exec).', 'Запустите __setWebAppExecUrl("ВАШ_/exec_URL"), затем __setWebhookProd().');
+  }
+  if (storedExecUrl && serviceExecUrl && storedExecUrl !== serviceExecUrl) {
+    pushWarning('stored WEBAPP_EXEC_URL не совпадает с ScriptApp.getService().getUrl().', 'Если кнопка не работает, запустите __setWebhookProd() после правильного деплоя.');
+  }
+
+  if (token) {
+    const me = urlFetchJson(`https://api.telegram.org/bot${token}/getMe`, { method: 'get' });
+    out.checks.telegramGetMe = me;
+    if (!me || me.ok !== true || !me.result) {
+      pushFailure('Telegram getMe вернул ошибку (токен/бот недоступен).', 'Проверьте TELEGRAM_BOT_TOKEN и запустите __checkAllButtonReasons снова.');
+    }
+
+    const webhookInfo = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
+    out.checks.webhookInfo = webhookInfo;
+    if (!webhookInfo || webhookInfo.ok !== true || !webhookInfo.result) {
+      pushFailure('Не удалось получить getWebhookInfo.', 'Проверьте токен и доступность Telegram API.');
+    } else {
+      const currentWebhookUrl = normalizeWebhookUrlToExec(webhookInfo.result.url);
+      const pending = Number(webhookInfo.result.pending_update_count || 0);
+      const allowed = webhookInfo.result.allowed_updates || [];
+      const hasCallback = Array.isArray(allowed)
+        ? allowed.indexOf('callback_query') !== -1
+        : String(allowed || '').indexOf('callback_query') !== -1;
+      const lastError = String(webhookInfo.result.last_error_message || '').trim();
+      const lastErrorDate = Number(webhookInfo.result.last_error_date || 0);
+
+      out.checks.webhookNormalized = {
+        currentWebhookUrl: currentWebhookUrl || '',
+        expectedWebhookUrl: resolvedExecUrl || '',
+        pendingUpdateCount: pending,
+        allowedUpdates: allowed,
+        hasCallbackQuery: hasCallback,
+        lastErrorMessage: lastError || '',
+        lastErrorDate: lastErrorDate || 0
+      };
+
+      if (!currentWebhookUrl) {
+        pushFailure('Webhook в Telegram не установлен.', 'Запустите __setWebhookProd().');
+      } else if (resolvedExecUrl && currentWebhookUrl !== resolvedExecUrl) {
+        pushFailure('Webhook указывает не на этот /exec URL.', 'Запустите __setWebhookProd() в текущем проекте.');
+      }
+
+      if (!hasCallback) {
+        pushFailure('В webhook не включен callback_query.', 'Запустите __setWebhookProd(), он задаст allowed_updates корректно.');
+      }
+
+      if (pending > 0) {
+        pushWarning('У webhook есть pending updates: ' + pending + '.', 'Обычно это временно. Если долго не уходит, запустите __setWebhookProd().');
+      }
+
+      if (lastError) {
+        pushWarning('Telegram сообщает last_error_message: ' + lastError, 'После исправлений нажмите кнопку и снова запустите __checkAllButtonReasons().');
+      }
+    }
+  }
+
+  if (resolvedExecUrl) {
+    const health = checkWebAppPublicHealth(resolvedExecUrl);
+    out.checks.webAppHealth = health;
+    if (!health.ok || health.statusCode !== 200 || health.bodyJsonOk !== true) {
+      pushFailure(
+        'Web App health-check неуспешен (внешний GET /?health=1).',
+        'Переразверните Web App: "Выполнять от моего имени", "Доступ: Все".'
+      );
+    }
+
+    const probe = __probeWebhookDoPostVersion(resolvedExecUrl);
+    out.checks.doPostProbe = probe;
+    if (!probe || probe.ok !== true) {
+      pushFailure(
+        'Внешний POST до doPost неуспешен.',
+        'Проверьте публичность Web App и что используется URL именно с /exec.'
+      );
+    } else {
+      const body = probe.bodyJson || {};
+      const action = String(body.action || '').trim();
+      const probeBuild = String(body.buildVersion || '').trim();
+      const probeError = String(body.error || '').trim();
+
+      if (action !== 'probe_version' || body.ok !== true) {
+        pushFailure(
+          'doPost ответил не на probe_version (возможен старый код/другой деплой).',
+          'Проверьте, что frontend и webhook смотрят на один и тот же /exec URL.'
+        );
+      }
+      if (probeBuild && probeBuild !== BUILD_VERSION) {
+        pushFailure(
+          'doPost вернул другой buildVersion: ' + probeBuild,
+          'Вызывается не текущая версия скрипта. Переразверните Web App и заново запустите __setWebhookProd().'
+        );
+      }
+      if (probeError && probeError.toLowerCase().indexOf('unknown action') !== -1) {
+        pushFailure(
+          'doPost вернул unknown action на probe_version.',
+          'Это почти всегда признак старого/чужого backend URL.'
+        );
+      }
+    }
+  }
+
+  const parserSamples = [
+    'take:CLN-12345678',
+    'take_CLN-12345678',
+    'take|CLN-12345678',
+    '{"action":"take","orderId":"CLN-12345678"}'
+  ];
+  const parserChecks = [];
+  for (let i = 0; i < parserSamples.length; i++) {
+    const sample = parserSamples[i];
+    const parsed = parseCallbackActionData(sample);
+    parserChecks.push({ sample: sample, parsed: parsed });
+    if (!parsed || parsed.action !== CALLBACK_ACTIONS.TAKE || parsed.orderId !== 'CLN-12345678') {
+      pushFailure('parseCallbackActionData не проходит self-test для: ' + sample, 'Проверьте parseCallbackActionData в текущей версии кода.');
+    }
+  }
+  out.checks.callbackParser = parserChecks;
+
+  if (!out.failures.length) {
+    out.advice.push('Критических проблем не найдено. Если кнопка не реагирует, нажмите кнопку и сразу запустите __getTelegramWebhookInfo() и __checkAllButtonReasons() повторно.');
+  }
+
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
+function checkWebAppPublicHealth(execUrl) {
+  const url = normalizeWebhookUrlToExec(execUrl);
+  if (!url) {
+    return { ok: false, statusCode: 0, bodyJsonOk: false, error: 'empty url', url: '' };
+  }
+
+  const healthUrl = url + (url.indexOf('?') === -1 ? '?health=1' : '&health=1');
+  try {
+    const resp = UrlFetchApp.fetch(healthUrl, {
+      method: 'get',
+      muteHttpExceptions: true,
+      followRedirects: true
+    });
+    const statusCode = resp.getResponseCode();
+    const text = String(resp.getContentText() || '');
+    let bodyJson = null;
+    try { bodyJson = JSON.parse(text); } catch (err) {}
+
+    return {
+      ok: statusCode >= 200 && statusCode < 300,
+      url: healthUrl,
+      statusCode: statusCode,
+      bodyJsonOk: !!(bodyJson && bodyJson.ok === true),
+      bodyJson: bodyJson,
+      bodySnippet: text.slice(0, 300)
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      url: healthUrl,
+      statusCode: 0,
+      bodyJsonOk: false,
+      error: err.message
+    };
+  }
 }
 
 function __deleteTelegramWebhook() {
