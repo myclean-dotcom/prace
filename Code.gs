@@ -1,6 +1,7 @@
 // Code.gs - чистый backend для заявок + Telegram кнопок
 
-const BUILD_VERSION = '2026-02-19-button-rewrite-v2';
+const BUILD_VERSION = '2026-02-21-button-rewrite-v3';
+const DEFAULT_PROD_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyuM13PB6CUNK4wf22u0WEHuv59RV3pGn231aND2A-6WW7nPopZh8KkeqLd4sp9-QtH/exec';
 
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
@@ -2129,6 +2130,26 @@ function __setWebhookProd() {
 
 function __hardResetBotRouting() {
   return __setWebhookProd();
+}
+
+function __setProdUrlAndCheckButton(url) {
+  const target = normalizeWebhookUrlToExec(url) || normalizeWebhookUrlToExec(DEFAULT_PROD_EXEC_URL);
+  if (!target) throw new Error('Не удалось определить целевой /exec URL');
+
+  const setUrl = __setWebAppExecUrl(target);
+  const setWebhook = __setWebhookProd();
+  const check = __checkAllButtonReasons(target);
+
+  const out = {
+    ok: !!(check && check.ok),
+    buildVersion: BUILD_VERSION,
+    targetUrl: target,
+    setUrl: setUrl,
+    setWebhook: setWebhook,
+    check: check
+  };
+  Logger.log(JSON.stringify(out));
+  return out;
 }
 
 function __getTelegramWebhookInfo() {
