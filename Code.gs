@@ -1765,6 +1765,8 @@ function generateBriefText(order) {
   const dateTime = escapeTelegramHtml(formatDateTimeForDisplay(order.orderDate, order.orderTime));
   const pay = escapeTelegramHtml(order.masterPay || order.orderTotal || '0');
   const streetOnly = escapeTelegramHtml(extractStreetOnly(order.customerAddress) || 'не указана');
+  const equipment = escapeTelegramHtml(String(order.equipment || '—').trim() || '—');
+  const chemistry = escapeTelegramHtml(String(order.chemistry || '—').trim() || '—');
 
   let text = `🧹 <b>ЗАЯВКА №${escapeTelegramHtml(order.orderId || '')}</b>\n`;
   text += '───────────────────\n';
@@ -1774,6 +1776,8 @@ function generateBriefText(order) {
   text += `🗓 Дата и время: ${dateTime}\n`;
   text += `💰 Оплата мастеру: ${pay} руб\n`;
   text += `📍 Улица: ${streetOnly}\n`;
+  text += `🧰 Оборудование: ${equipment}\n`;
+  text += `🧪 Химия: ${chemistry}\n`;
 
   if (String(order.worksDescription || '').trim()) {
     text += `\n📝 Дополнительное описание: ${escapeTelegramHtml(order.worksDescription)}\n`;
