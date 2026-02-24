@@ -1236,6 +1236,11 @@ function handleTextMessage(message, token) {
     }
   }
 
+  const masterResult = processMasterCommand(text, token, userId, chatId);
+  if (masterResult.handled) {
+    return jsonResponse({ ok: true, masterCommand: masterResult, buildVersion: BUILD_VERSION });
+  }
+
   return jsonResponse({ ok: true, buildVersion: BUILD_VERSION });
 }
 
@@ -1358,13 +1363,138 @@ function processManagerPaymentCommand(parts, token, replyChatId) {
 function sendManagerCommandReply(token, chatId, text) {
   const cid = String(chatId || '').trim();
   if (!cid) return;
-  urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+  sendBotTextMessage(token, cid, text, false);
+}
+
+function sendBotTextMessage(token, chatId, text, useHtml) {
+  const cid = String(chatId || '').trim();
+  if (!cid) return null;
+  return urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'post',
     payload: JSON.stringify({
       chat_id: cid,
-      text: String(text || '')
+      text: String(text || ''),
+      parse_mode: useHtml ? 'HTML' : undefined,
+      disable_web_page_preview: true
     })
   });
+}
+
+function processMasterCommand(text, token, userId, chatId) {
+  const parts = String(text || '').trim().split(/\s+/);
+  if (!parts.length) return { handled: false };
+
+  const command = normalizeBotCommandToken(parts[0]);
+  if (!command) return { handled: false };
+
+  const allowed = ['/myorder', '/arrived', '/done', '/paid', '/cancel', '/help', '/start'];
+  if (allowed.indexOf(command) === -1) return { handled: false };
+
+  if (command === '/help' || command === '/start') {
+    const help = [
+      'Команды мастера:',
+      '/myorder — моя текущая заявка',
+      '/arrived — приехал на объект',
+      '/done — работы завершены',
+      '/paid — оплата от клиента получена',
+      '/cancel — отменить заявку'
+    ].join('\n');
+    sendBotTextMessage(token, chatId, help, false);
+    return { handled: true, ok: true, command: command };
+  }
+
+  const rowNum = findActiveOrderRowByMasterId(userId);
+  if (!rowNum) {
+    sendBotTextMessage(token, chatId, 'У вас нет активной заявки.', false);
+    return { handled: true, ok: false, error: 'no_active_order', command: command };
+  }
+
+  const order = getOrderByRow(rowNum);
+  const orderId = normalizeOrderId(order['Номер заявки']);
+  const statusLower = String(order['Статус'] || '').toLowerCase().trim();
+  const currentMasterId = String(order['Master ID'] || '').trim();
+  const masterId = String(userId || '').trim();
+  const masterName = String(order['Master Name'] || buildMasterName({}) || 'Мастер').trim();
+
+  if (command === '/myorder') {
+    const city = String(order['Город'] || '').trim();
+    const address = [String(order['Улица и дом'] || '').trim(), String(order['Квартира/офис'] || '').trim()].filter(Boolean).join(', ');
+    const dateTime = formatDateTimeForDisplay(order['Дата уборки'], order['Время уборки']);
+    const link = build2GisLink(city, address);
+    const txt = [
+      `Текущая заявка: ${orderId || '—'}`,
+      `Статус: ${String(order['Статус'] || '').trim() || '—'}`,
+      `Дата и время: ${dateTime}`,
+      `Адрес: ${address || '—'}`,
+      link ? `2ГИС: ${link}` : ''
+    ].filter(Boolean).join('\n');
+    sendBotTextMessage(token, chatId, txt, false);
+    return { handled: true, ok: true, command: command, orderId: orderId };
+  }
+
+  if (command === '/arrived') {
+    if (!isOrderAssignedToMaster(statusLower, currentMasterId, masterId)) {
+      sendBotTextMessage(token, chatId, 'Только назначенный мастер может отметить прибытие.', false);
+      return { handled: true, ok: false, denied: true, command: command, orderId: orderId };
+    }
+    if (statusLower.indexOf('на объекте') !== -1) {
+      sendBotTextMessage(token, chatId, 'Прибытие уже отмечено.', false);
+      return { handled: true, ok: true, already: true, command: command, orderId: orderId };
+    }
+    const arrivedAt = formatDateTime(new Date());
+    updateOrderArrivedByRow(rowNum, arrivedAt);
+    const updatedOrder = getOrderByRow(rowNum);
+    notifyManagerNeedInvoice(updatedOrder, masterName, arrivedAt);
+    sendBotTextMessage(token, chatId, '✅ Время прибытия сохранено.', false);
+    return { handled: true, ok: true, command: command, orderId: orderId };
+  }
+
+  if (command === '/done') {
+    if (!isOrderAssignedToMaster(statusLower, currentMasterId, masterId)) {
+      sendBotTextMessage(token, chatId, 'Только назначенный мастер может завершить заявку.', false);
+      return { handled: true, ok: false, denied: true, command: command, orderId: orderId };
+    }
+    const doneAt = formatDateTime(new Date());
+    updateOrderDoneByRow(rowNum, doneAt);
+    const updatedOrder = getOrderByRow(rowNum);
+    notifyManagerOrderDone(updatedOrder, masterName, doneAt);
+    sendBotTextMessage(token, chatId, '✅ Работы завершены. После оплаты выполните /paid.', false);
+    return { handled: true, ok: true, command: command, orderId: orderId };
+  }
+
+  if (command === '/paid') {
+    if (!currentMasterId || currentMasterId !== masterId) {
+      sendBotTextMessage(token, chatId, 'Только назначенный мастер может подтвердить оплату.', false);
+      return { handled: true, ok: false, denied: true, command: command, orderId: orderId };
+    }
+    if (statusLower.indexOf('заверш') !== -1 && statusLower.indexOf('ожидает оплат') === -1) {
+      sendBotTextMessage(token, chatId, 'Оплата уже подтверждена.', false);
+      return { handled: true, ok: true, already: true, command: command, orderId: orderId };
+    }
+    const paidAt = formatDateTime(new Date());
+    updateOrderPaidByRow(rowNum, paidAt);
+    const updatedOrder = getOrderByRow(rowNum);
+    notifyManagerPaymentConfirmed(updatedOrder, masterName, paidAt);
+    sendBotTextMessage(token, chatId, '✅ Оплата подтверждена.', false);
+    return { handled: true, ok: true, command: command, orderId: orderId };
+  }
+
+  if (command === '/cancel') {
+    if (!currentMasterId || currentMasterId !== masterId) {
+      sendBotTextMessage(token, chatId, 'Только назначенный мастер может отменить заявку.', false);
+      return { handled: true, ok: false, denied: true, command: command, orderId: orderId };
+    }
+    const cancelledAt = formatDateTime(new Date());
+    updateOrderCancelledByRow(rowNum, masterName, cancelledAt);
+    clearOrderDmSent(orderId);
+    const republish = republishOrderToGroupByRow(rowNum);
+    const updatedOrder = getOrderByRow(rowNum);
+    notifyManagerOrderCancelled(updatedOrder, masterName, cancelledAt, republish);
+    sendBotTextMessage(token, chatId, republish.ok ? '✅ Заявка отменена и возвращена в группу.' : '⚠️ Заявка отменена, но вернуть в группу не удалось.', false);
+    return { handled: true, ok: true, command: command, orderId: orderId, republish: republish };
+  }
+
+  return { handled: false };
 }
 
 function sendOrdersDigestToChat(token, chatId, mode) {
@@ -2491,6 +2621,64 @@ function __setWebhookProd() {
     deleteWebhook: del,
     setWebhook: set,
     webhookInfo: info
+  };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
+function __setTelegramBotCommands() {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
+
+  const privateCommands = [
+    { command: 'myorder', description: 'Моя текущая заявка' },
+    { command: 'arrived', description: 'Я приехал на объект' },
+    { command: 'done', description: 'Работы завершены' },
+    { command: 'paid', description: 'Оплата от клиента получена' },
+    { command: 'cancel', description: 'Отменить текущую заявку' },
+    { command: 'active', description: 'Заявки в работе (менеджер)' },
+    { command: 'planned', description: 'Запланированные заявки (менеджер)' },
+    { command: 'pay', description: 'Отправить ссылку оплаты мастеру' },
+    { command: 'help', description: 'Справка по командам' }
+  ];
+
+  const groupCommands = [
+    { command: 'active', description: 'Заявки в работе сейчас' },
+    { command: 'planned', description: 'Запланированные заявки' },
+    { command: 'pay', description: 'Отправить ссылку оплаты мастеру' },
+    { command: 'help', description: 'Справка по командам' }
+  ];
+
+  const defaultResp = urlFetchJson(`https://api.telegram.org/bot${token}/setMyCommands`, {
+    method: 'post',
+    payload: JSON.stringify({
+      commands: privateCommands,
+      scope: { type: 'default' }
+    })
+  });
+
+  const privateResp = urlFetchJson(`https://api.telegram.org/bot${token}/setMyCommands`, {
+    method: 'post',
+    payload: JSON.stringify({
+      commands: privateCommands,
+      scope: { type: 'all_private_chats' }
+    })
+  });
+
+  const groupResp = urlFetchJson(`https://api.telegram.org/bot${token}/setMyCommands`, {
+    method: 'post',
+    payload: JSON.stringify({
+      commands: groupCommands,
+      scope: { type: 'all_group_chats' }
+    })
+  });
+
+  const out = {
+    ok: true,
+    buildVersion: BUILD_VERSION,
+    defaultSet: defaultResp,
+    privateSet: privateResp,
+    groupSet: groupResp
   };
   Logger.log(JSON.stringify(out));
   return out;
