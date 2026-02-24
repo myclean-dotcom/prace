@@ -254,6 +254,11 @@ function __getTelegramWebhookInfo() {
   return out;
 }
 
+// Backward-compatible alias used in docs and previous builds.
+function __checkButtonEndToEnd(targetUrl) {
+  return __checkAllButtonReasons(targetUrl || '');
+}
+
 function __checkAllButtonReasons(targetUrl) {
   const out = {
     ok: true,
