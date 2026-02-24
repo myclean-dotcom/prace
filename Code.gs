@@ -1,7 +1,7 @@
 // Code.gs - чистый backend для заявок + Telegram кнопок
 
-const BUILD_VERSION = '2026-02-21-button-rewrite-v3';
-const DEFAULT_PROD_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyuM13PB6CUNK4wf22u0WEHuv59RV3pGn231aND2A-6WW7nPopZh8KkeqLd4sp9-QtH/exec';
+const BUILD_VERSION = '2026-02-24-button-rewrite-v4';
+const DEFAULT_PROD_EXEC_URL = 'https://script.google.com/macros/s/AKfycbxNNiA-5F13rR2X3yr16Uv0ao1UTVRpg4gS86a63AY/exec';
 
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
@@ -2136,14 +2136,47 @@ function __setProdUrlAndCheckButton(url) {
   const target = normalizeWebhookUrlToExec(url) || normalizeWebhookUrlToExec(DEFAULT_PROD_EXEC_URL);
   if (!target) throw new Error('Не удалось определить целевой /exec URL');
 
-  const setUrl = __setWebAppExecUrl(target);
-  const setWebhook = __setWebhookProd();
-  const check = __checkAllButtonReasons(target);
+  let setUrl = __setWebAppExecUrl(target);
+  let setWebhook = __setWebhookProd();
+  let check = __checkAllButtonReasons(target);
+
+  let autoSwitched = false;
+  let switchedToUrl = '';
+  let fallbackInfo = null;
+
+  const checkFailures = (check && check.failures) ? check.failures : [];
+  const hasBuildMismatch = checkFailures.some(function(msg) {
+    return String(msg || '').toLowerCase().indexOf('другой buildversion') !== -1;
+  });
+  const hasProbeUnknownAction = checkFailures.some(function(msg) {
+    return String(msg || '').toLowerCase().indexOf('unknown action') !== -1;
+  });
+
+  if (hasBuildMismatch || hasProbeUnknownAction) {
+    const serviceUrl = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
+    if (serviceUrl && serviceUrl !== target) {
+      autoSwitched = true;
+      switchedToUrl = serviceUrl;
+
+      setUrl = __setWebAppExecUrl(serviceUrl);
+      setWebhook = __setWebhookProd();
+      check = __checkAllButtonReasons(serviceUrl);
+
+      fallbackInfo = {
+        reason: 'target_url_has_old_build_or_unknown_action',
+        targetUrl: target,
+        switchedToUrl: serviceUrl
+      };
+    }
+  }
 
   const out = {
     ok: !!(check && check.ok),
     buildVersion: BUILD_VERSION,
     targetUrl: target,
+    autoSwitched: autoSwitched,
+    switchedToUrl: switchedToUrl,
+    fallbackInfo: fallbackInfo,
     setUrl: setUrl,
     setWebhook: setWebhook,
     check: check
