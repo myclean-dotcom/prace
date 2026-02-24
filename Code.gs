@@ -1,6 +1,6 @@
 // Code.gs - чистый backend для заявок + Telegram кнопок
 
-const BUILD_VERSION = '2026-02-24-button-rewrite-v4';
+const BUILD_VERSION = '2026-02-24-events-v1';
 const DEFAULT_PROD_EXEC_URL = 'https://script.google.com/macros/s/AKfycbxNNiA-5F13rR2X3yr16Uv0ao1UTVRpg4gS86a63AY/exec';
 
 const PROP = PropertiesService.getScriptProperties();
@@ -16,6 +16,7 @@ const CALLBACK_ACTIONS = {
   TAKE: 'take',
   ARRIVE: 'arrive',
   DONE: 'done',
+  PAID: 'paid',
   CANCEL: 'cancel'
 };
 
@@ -45,6 +46,7 @@ const REQUIRED_HEADERS = [
   'Дата принятия',
   'Дата прибытия',
   'Дата завершения',
+  'Дата оплаты',
   'Напоминание 24ч',
   'Напоминание 2ч',
   'Статус выполнения'
@@ -457,7 +459,11 @@ function findActiveOrderRowByMasterId(masterId) {
     const id = String(idValues[i][0] || '').trim();
     const status = String(statusValues[i][0] || '').toLowerCase().trim();
     if (id !== target) continue;
-    if (status.indexOf('взята') === -1 && status.indexOf('на объекте') === -1) continue;
+    if (
+      status.indexOf('взята') === -1 &&
+      status.indexOf('на объекте') === -1 &&
+      status.indexOf('ожидает оплат') === -1
+    ) continue;
     return i + 2;
   }
 
@@ -575,6 +581,7 @@ function buildOrderRowData(order, status) {
     'Дата принятия': '',
     'Дата прибытия': '',
     'Дата завершения': '',
+    'Дата оплаты': '',
     'Напоминание 24ч': '',
     'Напоминание 2ч': '',
     'Статус выполнения': ''
@@ -793,6 +800,22 @@ function handleCallbackQuery(cb, token) {
       });
     }
 
+    if (parsed.action === CALLBACK_ACTIONS.PAID) {
+      return handlePaidAction({
+        token: token,
+        callbackId: callbackId,
+        cbChatId: cbChatId,
+        cbMessageId: cbMessageId,
+        rowNum: rowNum,
+        order: order,
+        orderId: orderId,
+        statusLower: statusLower,
+        currentMasterId: currentMasterId,
+        masterId: masterId,
+        masterName: masterName
+      });
+    }
+
     if (parsed.action === CALLBACK_ACTIONS.CANCEL) {
       return handleCancelAction({
         token: token,
@@ -848,6 +871,7 @@ function handleTakeAction(ctx) {
   answerCallback(ctx.token, ctx.callbackId, '✅ Заявка принята. Отправляю детали в личные сообщения.');
   sendMasterOrderPackage(ctx.token, masterId, orderId, updatedOrder);
   clearGroupTakeButton(ctx.token, updatedOrder, ctx.cbChatId, ctx.cbMessageId);
+  notifyManagerOrderTaken(updatedOrder, ctx.masterName, takenAt);
 
   return jsonResponse({ ok: true, action: CALLBACK_ACTIONS.TAKE, orderId: orderId, buildVersion: BUILD_VERSION });
 }
@@ -879,11 +903,34 @@ function handleDoneAction(ctx) {
   updateOrderDoneByRow(ctx.rowNum, doneAt);
   const updatedOrder = getOrderByRow(ctx.rowNum);
 
-  answerCallback(ctx.token, ctx.callbackId, '✅ Заявка завершена');
-  clearMasterActionMessage(ctx.token, ctx.cbChatId, ctx.cbMessageId);
+  answerCallback(ctx.token, ctx.callbackId, '✅ Работы завершены. Подтвердите оплату кнопкой.');
+  updateMasterActionMessageAfterDone(ctx.token, ctx.cbChatId, ctx.cbMessageId, ctx.orderId);
   notifyManagerOrderDone(updatedOrder, ctx.masterName, doneAt);
 
   return jsonResponse({ ok: true, action: CALLBACK_ACTIONS.DONE, orderId: ctx.orderId, buildVersion: BUILD_VERSION });
+}
+
+function handlePaidAction(ctx) {
+  if (!ctx.currentMasterId || String(ctx.currentMasterId).trim() !== String(ctx.masterId).trim()) {
+    answerCallback(ctx.token, ctx.callbackId, '❌ Только назначенный мастер может подтвердить оплату');
+    return jsonResponse({ ok: true, denied: true, action: CALLBACK_ACTIONS.PAID, buildVersion: BUILD_VERSION });
+  }
+
+  const statusLower = String(ctx.statusLower || '').toLowerCase();
+  if (statusLower.indexOf('ожидает оплат') === -1 && statusLower.indexOf('на объекте') === -1 && statusLower.indexOf('взята') === -1) {
+    answerCallback(ctx.token, ctx.callbackId, 'ℹ️ Для этой заявки оплата уже подтверждена');
+    return jsonResponse({ ok: true, alreadyPaid: true, action: CALLBACK_ACTIONS.PAID, buildVersion: BUILD_VERSION });
+  }
+
+  const paidAt = formatDateTime(new Date());
+  updateOrderPaidByRow(ctx.rowNum, paidAt);
+  const updatedOrder = getOrderByRow(ctx.rowNum);
+
+  answerCallback(ctx.token, ctx.callbackId, '✅ Оплата подтверждена');
+  clearMasterActionMessage(ctx.token, ctx.cbChatId, ctx.cbMessageId);
+  notifyManagerPaymentConfirmed(updatedOrder, ctx.masterName, paidAt);
+
+  return jsonResponse({ ok: true, action: CALLBACK_ACTIONS.PAID, orderId: ctx.orderId, buildVersion: BUILD_VERSION });
 }
 
 function handleCancelAction(ctx) {
@@ -964,6 +1011,21 @@ function updateMasterActionMessageAfterArrive(token, chatId, messageId, orderId)
   });
 }
 
+function updateMasterActionMessageAfterDone(token, chatId, messageId, orderId) {
+  const chat = String(chatId || '').trim();
+  const msg = String(messageId || '').trim();
+  if (!chat || !msg) return;
+
+  urlFetchJson(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: chat,
+      message_id: Number(msg),
+      reply_markup: buildMasterActionKeyboardAfterDone(orderId)
+    })
+  });
+}
+
 function clearMasterActionMessage(token, chatId, messageId) {
   const chat = String(chatId || '').trim();
   const msg = String(messageId || '').trim();
@@ -1011,7 +1073,7 @@ function parseCallbackActionData(data) {
   if (!raw) return null;
 
   // Новый строгий формат: action:ORDER_ID
-  const strict = raw.match(/^(take|arrive|done|cancel):(.+)$/i);
+  const strict = raw.match(/^(take|arrive|done|paid|cancel):(.+)$/i);
   if (strict) {
     const action = String(strict[1] || '').trim().toLowerCase();
     const orderId = normalizeOrderId(strict[2]);
@@ -1019,7 +1081,7 @@ function parseCallbackActionData(data) {
   }
 
   // Совместимость: action|ORDER_ID
-  const vPipe = raw.match(/^(take|arrive|done|cancel)\|(.+)$/i);
+  const vPipe = raw.match(/^(take|arrive|done|paid|cancel)\|(.+)$/i);
   if (vPipe) {
     const action = String(vPipe[1] || '').trim().toLowerCase();
     const orderId = normalizeOrderId(vPipe[2]);
@@ -1027,7 +1089,7 @@ function parseCallbackActionData(data) {
   }
 
   // Совместимость: action_ORDER_ID
-  const vUnderscore = raw.match(/^(take|arrive|done|cancel)_(.+)$/i);
+  const vUnderscore = raw.match(/^(take|arrive|done|paid|cancel)_(.+)$/i);
   if (vUnderscore) {
     const action = String(vUnderscore[1] || '').trim().toLowerCase();
     const orderId = normalizeOrderId(vUnderscore[2]);
@@ -1035,7 +1097,7 @@ function parseCallbackActionData(data) {
   }
 
   // Совместимость: просто "take" (без id)
-  const onlyAction = raw.match(/^(take|arrive|done|cancel)$/i);
+  const onlyAction = raw.match(/^(take|arrive|done|paid|cancel)$/i);
   if (onlyAction) {
     return { action: String(onlyAction[1] || '').toLowerCase(), orderId: '' };
   }
@@ -1167,9 +1229,8 @@ function handleTextMessage(message, token) {
     PROP.setProperty('TELEGRAM_CHAT_ID', chatId);
   }
 
-  const managerId = getManagerChatId();
-  if (managerId && userId === managerId) {
-    const result = processManagerPaymentCommand(text, token);
+  if (isManagerContext(userId, chatId)) {
+    const result = processManagerCommand(text, token, chatId);
     if (result.handled) {
       return jsonResponse({ ok: true, managerCommand: result, buildVersion: BUILD_VERSION });
     }
@@ -1178,29 +1239,94 @@ function handleTextMessage(message, token) {
   return jsonResponse({ ok: true, buildVersion: BUILD_VERSION });
 }
 
-function processManagerPaymentCommand(text, token) {
-  // /pay CLN-12345678 https://...
+function isManagerContext(userId, chatId) {
+  const managerId = getManagerChatId();
+  const eventsChatId = getEventsChatId();
+  const uid = String(userId || '').trim();
+  const cid = String(chatId || '').trim();
+
+  if (managerId && (uid === managerId || cid === managerId)) return true;
+  if (eventsChatId && (uid === eventsChatId || cid === eventsChatId)) return true;
+  return false;
+}
+
+function normalizeBotCommandToken(token) {
+  const raw = String(token || '').trim().toLowerCase();
+  if (!raw) return '';
+  const slash = raw[0] === '/' ? raw : ('/' + raw);
+  return slash.split('@')[0];
+}
+
+function processManagerCommand(text, token, replyChatId) {
   const parts = String(text || '').trim().split(/\s+/);
-  if (!parts.length || String(parts[0]).toLowerCase() !== '/pay') {
-    return { handled: false };
+  if (!parts.length) return { handled: false };
+
+  const command = normalizeBotCommandToken(parts[0]);
+  if (!command) return { handled: false };
+
+  if (command === '/pay') {
+    return processManagerPaymentCommand(parts, token, replyChatId);
   }
 
+  if (command === '/active') {
+    return sendOrdersDigestToChat(token, replyChatId, 'active');
+  }
+
+  if (command === '/planned') {
+    return sendOrdersDigestToChat(token, replyChatId, 'planned');
+  }
+
+  if (command === '/help' || command === '/start') {
+    const help = [
+      'Команды менеджера:',
+      '<code>/active</code> — заявки в работе сейчас',
+      '<code>/planned</code> — запланированные заявки с назначенным мастером',
+      '<code>/pay НОМЕР_ЗАЯВКИ ССЫЛКА</code> — отправить мастеру ссылку на оплату'
+    ].join('\n');
+
+    urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'post',
+      payload: JSON.stringify({
+        chat_id: String(replyChatId || '').trim(),
+        text: help,
+        parse_mode: 'HTML'
+      })
+    });
+
+    return { handled: true, ok: true, command: command };
+  }
+
+  return { handled: false };
+}
+
+function processManagerPaymentCommand(parts, token, replyChatId) {
+  // /pay CLN-12345678 https://...
+  if (!parts || parts.length < 1) return { handled: false };
+
   if (parts.length < 3) {
+    sendManagerCommandReply(token, replyChatId, '❌ Используйте: /pay НОМЕР_ЗАЯВКИ ССЫЛКА');
     return { handled: true, ok: false, error: 'Используйте: /pay НОМЕР_ЗАЯВКИ ССЫЛКА' };
   }
 
   const orderId = normalizeOrderId(parts[1]);
   const payLink = String(parts.slice(2).join(' ') || '').trim();
   if (!orderId || !payLink) {
+    sendManagerCommandReply(token, replyChatId, '❌ Неверный формат команды /pay');
     return { handled: true, ok: false, error: 'Неверный формат команды' };
   }
 
   const rowNum = findOrderRowById(orderId);
-  if (!rowNum) return { handled: true, ok: false, error: 'Заявка не найдена' };
+  if (!rowNum) {
+    sendManagerCommandReply(token, replyChatId, `❌ Заявка ${orderId} не найдена`);
+    return { handled: true, ok: false, error: 'Заявка не найдена' };
+  }
 
   const order = getOrderByRow(rowNum);
   const masterId = String(order['Master ID'] || '').trim();
-  if (!masterId) return { handled: true, ok: false, error: 'У заявки нет назначенного мастера' };
+  if (!masterId) {
+    sendManagerCommandReply(token, replyChatId, `❌ У заявки ${orderId} нет назначенного мастера`);
+    return { handled: true, ok: false, error: 'У заявки нет назначенного мастера' };
+  }
 
   const textToMaster = [
     `💳 Ссылка на оплату по заявке <code>${escapeTelegramHtml(orderId)}</code>:`,
@@ -1218,13 +1344,107 @@ function processManagerPaymentCommand(text, token) {
   });
 
   if (!resp || resp.ok !== true) {
+    sendManagerCommandReply(token, replyChatId, `❌ Не удалось отправить ссылку мастеру по заявке ${orderId}`);
     return { handled: true, ok: false, error: 'Не удалось отправить ссылку мастеру', telegram: resp || null };
   }
 
   const sheet = getSheet();
   const map = getHeaderMap(sheet);
   setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Ссылка на оплату отправлена ' + formatDateTime(new Date()));
+  sendManagerCommandReply(token, replyChatId, `✅ Ссылка на оплату отправлена мастеру по заявке ${orderId}`);
   return { handled: true, ok: true, orderId: orderId, masterId: masterId };
+}
+
+function sendManagerCommandReply(token, chatId, text) {
+  const cid = String(chatId || '').trim();
+  if (!cid) return;
+  urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: cid,
+      text: String(text || '')
+    })
+  });
+}
+
+function sendOrdersDigestToChat(token, chatId, mode) {
+  const targetChatId = String(chatId || '').trim();
+  if (!targetChatId) return { handled: true, ok: false, error: 'chat_id not set' };
+
+  const sheet = getSheet();
+  const map = getHeaderMap(sheet);
+  const lastRow = sheet.getLastRow();
+
+  if (lastRow < 2) {
+    const emptyText = mode === 'active' ? 'Сейчас нет заявок в работе.' : 'Нет запланированных заявок.';
+    urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'post',
+      payload: JSON.stringify({ chat_id: targetChatId, text: emptyText })
+    });
+    return { handled: true, ok: true, count: 0, mode: mode };
+  }
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  const chunks = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 2;
+    const status = String(getCellFromRowByHeader(row, map, 'Статус') || '').toLowerCase().trim();
+    const orderId = normalizeOrderId(getCellFromRowByHeader(row, map, 'Номер заявки'));
+    const masterName = String(getCellFromRowByHeader(row, map, 'Master Name') || '').trim() || '—';
+    const date = formatDateForDisplay(getCellFromRowByHeader(row, map, 'Дата уборки'));
+    const time = formatTimeForDisplay(getCellFromRowByHeader(row, map, 'Время уборки'));
+    const dateTime = [date, time].filter(Boolean).join(' ');
+    const city = String(getCellFromRowByHeader(row, map, 'Город') || '').trim();
+    const address = [
+      String(getCellFromRowByHeader(row, map, 'Улица и дом') || '').trim(),
+      String(getCellFromRowByHeader(row, map, 'Квартира/офис') || '').trim()
+    ].filter(Boolean).join(', ');
+    const link2gis = build2GisLink(city, address);
+    const rowLink = buildSheetRowLink(rowNum);
+
+    const isActive = status.indexOf('на объекте') !== -1 || status.indexOf('ожидает оплат') !== -1;
+    const isPlanned = status.indexOf('взята') !== -1;
+    if (mode === 'active' && !isActive) continue;
+    if (mode === 'planned' && !isPlanned) continue;
+    if (!orderId) continue;
+
+    let item = `• <code>${escapeTelegramHtml(orderId)}</code> — ${escapeTelegramHtml(masterName)}`;
+    if (dateTime) item += `\n  ${escapeTelegramHtml(dateTime)}`;
+    if (link2gis) item += `\n  <a href="${escapeTelegramHtml(link2gis)}">2ГИС</a>`;
+    if (rowLink) item += ` | <a href="${escapeTelegramHtml(rowLink)}">Таблица</a>`;
+    chunks.push(item);
+  }
+
+  const title = mode === 'active' ? '🟢 <b>Заявки в работе сейчас</b>' : '🗓 <b>Запланированные заявки</b>';
+  if (!chunks.length) {
+    const empty = mode === 'active' ? 'Сейчас нет заявок в работе.' : 'Нет запланированных заявок.';
+    urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'post',
+      payload: JSON.stringify({ chat_id: targetChatId, text: empty })
+    });
+    return { handled: true, ok: true, count: 0, mode: mode };
+  }
+
+  const maxItems = 25;
+  const lines = chunks.slice(0, maxItems);
+  let text = title + '\n\n' + lines.join('\n\n');
+  if (chunks.length > maxItems) {
+    text += `\n\n…и еще ${chunks.length - maxItems}`;
+  }
+
+  const resp = urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: targetChatId,
+      text: text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true
+    })
+  });
+
+  return { handled: true, ok: !!(resp && resp.ok === true), count: chunks.length, mode: mode, telegram: resp || null };
 }
 
 function handleMasterPhotoMessage(message, token) {
@@ -1271,6 +1491,7 @@ function updateOrderTakenByRow(rowNum, masterId, masterName, takenAt) {
     'Дата принятия': cleanTakenAt,
     'Дата прибытия': '',
     'Дата завершения': '',
+    'Дата оплаты': '',
     'Напоминание 24ч': '',
     'Напоминание 2ч': '',
     'Статус выполнения': 'Заявка принята: ' + cleanTakenAt
@@ -1295,9 +1516,21 @@ function updateOrderDoneByRow(rowNum, doneAt) {
   const cleanDoneAt = String(doneAt || '').trim();
 
   patchRowByHeaders(sheet, rowNum, map, {
-    'Статус': 'Завершена',
+    'Статус': 'Ожидает оплаты',
     'Дата завершения': cleanDoneAt,
     'Статус выполнения': 'Работы завершены: ' + cleanDoneAt
+  });
+}
+
+function updateOrderPaidByRow(rowNum, paidAt) {
+  const sheet = getSheet();
+  const map = getHeaderMap(sheet);
+  const cleanPaidAt = String(paidAt || '').trim();
+
+  patchRowByHeaders(sheet, rowNum, map, {
+    'Статус': 'Завершена',
+    'Дата оплаты': cleanPaidAt,
+    'Статус выполнения': 'Оплата подтверждена: ' + cleanPaidAt
   });
 }
 
@@ -1315,6 +1548,7 @@ function updateOrderCancelledByRow(rowNum, masterName, cancelledAt) {
     'Дата принятия': '',
     'Дата прибытия': '',
     'Дата завершения': '',
+    'Дата оплаты': '',
     'Напоминание 24ч': '',
     'Напоминание 2ч': '',
     'Статус выполнения': 'Отменена мастером ' + cleanMasterName + ': ' + cleanCancelledAt
@@ -1386,6 +1620,14 @@ function buildMasterActionKeyboardAfterArrive(orderId) {
   };
 }
 
+function buildMasterActionKeyboardAfterDone(orderId) {
+  return {
+    inline_keyboard: [
+      [{ text: '💳 ОПЛАТА ПОЛУЧЕНА', callback_data: makeCallbackData(CALLBACK_ACTIONS.PAID, orderId) }]
+    ]
+  };
+}
+
 function generateBriefText(order) {
   const city = escapeTelegramHtml(order.customerCity || 'не указан');
   const type = escapeTelegramHtml(order.cleaningType || 'не указан');
@@ -1429,6 +1671,7 @@ function generateFullText(order) {
     String(order['Улица и дом'] || '').trim(),
     String(order['Квартира/офис'] || '').trim()
   ].filter(Boolean).join(', ');
+  const twoGisLink = build2GisLink(order['Город'], fullAddress);
 
   const equipment = String(order['Оборудование'] || '').trim() || '—';
   const chemistry = String(order['Химия'] || '').trim() || '—';
@@ -1443,6 +1686,9 @@ function generateFullText(order) {
   text += `📐 Площадь: ${area} м²\n`;
   text += `🗓 Дата и время: ${dateTime}\n`;
   text += `📍 Адрес: ${escapeTelegramHtml(fullAddress || 'не указан')}\n\n`;
+  if (twoGisLink) {
+    text += `🗺 2ГИС: <a href="${escapeTelegramHtml(twoGisLink)}">Открыть адрес</a>\n\n`;
+  }
 
   text += '<b>👤 ДАННЫЕ КЛИЕНТА</b>\n';
   text += `Имя: ${clientName}\n`;
@@ -1480,6 +1726,28 @@ function extractStreetOnly(address) {
   const raw = String(address || '').trim();
   if (!raw) return '';
   return String(raw.split(',')[0] || '').trim();
+}
+
+function build2GisLink(city, address) {
+  const c = String(city || '').trim();
+  const a = String(address || '').trim();
+  const query = [c, a].filter(Boolean).join(', ').trim();
+  if (!query) return '';
+  return 'https://2gis.ru/search/' + encodeURIComponent(query);
+}
+
+function buildSheetRowLink(rowNum) {
+  const spreadsheetId = String(PROP.getProperty('SPREADSHEET_ID') || '').trim();
+  const row = Number(rowNum || 0);
+  if (!spreadsheetId || !row) return '';
+
+  try {
+    const sheet = getSheet();
+    const gid = sheet.getSheetId();
+    return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit#gid=${gid}&range=A${row}`;
+  } catch (err) {
+    return '';
+  }
 }
 
 function buildPhoneLink(phone) {
@@ -1527,8 +1795,8 @@ function appendPhotoToOrder(rowNum, fileId, caption, unixTs) {
 }
 
 function forwardMasterPhotoToManager(token, message, savedInfo) {
-  const managerId = getManagerChatId();
-  if (!managerId) return;
+  const eventsChatId = getEventsChatId();
+  if (!eventsChatId) return;
 
   const from = message.from || {};
   const photos = message.photo || [];
@@ -1537,8 +1805,20 @@ function forwardMasterPhotoToManager(token, message, savedInfo) {
 
   const masterName = buildMasterName(from);
   const caption = String(message.caption || '').trim();
+  let orderId = '';
+  if (savedInfo && savedInfo.rowNum) {
+    try {
+      const rowOrder = getOrderByRow(savedInfo.rowNum);
+      orderId = normalizeOrderId(rowOrder['Номер заявки'] || '');
+    } catch (err) {
+      orderId = '';
+    }
+  }
 
   let text = `📸 Фото от мастера: ${escapeTelegramHtml(masterName)}`;
+  if (orderId) {
+    text += `\nЗаявка: <code>${escapeTelegramHtml(orderId)}</code>`;
+  }
   if (savedInfo && savedInfo.info) {
     text += `\nСохранено в таблицу: ${escapeTelegramHtml(savedInfo.info)}`;
   }
@@ -1549,7 +1829,7 @@ function forwardMasterPhotoToManager(token, message, savedInfo) {
   urlFetchJson(`https://api.telegram.org/bot${token}/sendPhoto`, {
     method: 'post',
     payload: JSON.stringify({
-      chat_id: managerId,
+      chat_id: eventsChatId,
       photo: lastPhoto.file_id,
       caption: text,
       parse_mode: 'HTML'
@@ -1619,10 +1899,14 @@ function getManagerChatId() {
   return String(PROP.getProperty('TELEGRAM_MANAGER_CHAT_ID') || '').trim();
 }
 
+function getEventsChatId() {
+  return String(PROP.getProperty('TELEGRAM_EVENTS_CHAT_ID') || getManagerChatId() || '').trim();
+}
+
 function notifyManagerNeedInvoice(order, masterName, arrivedAt) {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
-  const managerId = getManagerChatId();
-  if (!token || !managerId) return;
+  const eventsChatId = getEventsChatId();
+  if (!token || !eventsChatId) return;
 
   const orderId = escapeTelegramHtml(order['Номер заявки'] || '');
   const text = [
@@ -1638,7 +1922,7 @@ function notifyManagerNeedInvoice(order, masterName, arrivedAt) {
   urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'post',
     payload: JSON.stringify({
-      chat_id: managerId,
+      chat_id: eventsChatId,
       text: text,
       parse_mode: 'HTML'
     })
@@ -1647,8 +1931,8 @@ function notifyManagerNeedInvoice(order, masterName, arrivedAt) {
 
 function notifyManagerOrderDone(order, masterName, doneAt) {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
-  const managerId = getManagerChatId();
-  if (!token || !managerId) return;
+  const eventsChatId = getEventsChatId();
+  if (!token || !eventsChatId) return;
 
   const orderId = escapeTelegramHtml(order['Номер заявки'] || '');
   const text = [
@@ -1661,7 +1945,7 @@ function notifyManagerOrderDone(order, masterName, doneAt) {
   urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'post',
     payload: JSON.stringify({
-      chat_id: managerId,
+      chat_id: eventsChatId,
       text: text,
       parse_mode: 'HTML'
     })
@@ -1670,8 +1954,8 @@ function notifyManagerOrderDone(order, masterName, doneAt) {
 
 function notifyManagerOrderCancelled(order, masterName, cancelledAt, republish) {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
-  const managerId = getManagerChatId();
-  if (!token || !managerId) return;
+  const eventsChatId = getEventsChatId();
+  if (!token || !eventsChatId) return;
 
   const orderId = escapeTelegramHtml(order['Номер заявки'] || '');
   const republishState = republish && republish.ok ? 'Да' : 'Нет';
@@ -1686,7 +1970,53 @@ function notifyManagerOrderCancelled(order, masterName, cancelledAt, republish) 
   urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'post',
     payload: JSON.stringify({
-      chat_id: managerId,
+      chat_id: eventsChatId,
+      text: text,
+      parse_mode: 'HTML'
+    })
+  });
+}
+
+function notifyManagerOrderTaken(order, masterName, takenAt) {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const eventsChatId = getEventsChatId();
+  if (!token || !eventsChatId) return;
+
+  const orderId = escapeTelegramHtml(order['Номер заявки'] || '');
+  const text = [
+    '📌 <b>Мастер взял заявку</b>',
+    `Заявка: <code>${orderId}</code>`,
+    `Мастер: ${escapeTelegramHtml(masterName || 'Мастер')}`,
+    `Время принятия: ${escapeTelegramHtml(takenAt || '')}`
+  ].join('\n');
+
+  urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: eventsChatId,
+      text: text,
+      parse_mode: 'HTML'
+    })
+  });
+}
+
+function notifyManagerPaymentConfirmed(order, masterName, paidAt) {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const eventsChatId = getEventsChatId();
+  if (!token || !eventsChatId) return;
+
+  const orderId = escapeTelegramHtml(order['Номер заявки'] || '');
+  const text = [
+    '💵 <b>Оплата подтверждена мастером</b>',
+    `Заявка: <code>${orderId}</code>`,
+    `Мастер: ${escapeTelegramHtml(masterName || 'Мастер')}`,
+    `Время подтверждения: ${escapeTelegramHtml(paidAt || '')}`
+  ].join('\n');
+
+  urlFetchJson(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'post',
+    payload: JSON.stringify({
+      chat_id: eventsChatId,
       text: text,
       parse_mode: 'HTML'
     })
@@ -2058,6 +2388,7 @@ function __checkConfiguration() {
     telegramChatId: String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim() || 'NOT_SET',
     telegramChatNovosibirsk: String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim() || 'NOT_SET',
     telegramManagerChatId: getManagerChatId() || 'NOT_SET',
+    telegramEventsChatId: getEventsChatId() || 'NOT_SET',
     storedWebAppExecUrl: String(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY) || '').trim() || 'NOT_SET',
     serviceExecUrl: getCurrentServiceExecUrl(),
     resolvedWebhookExecUrl: resolveWebhookExecUrl('')
@@ -2090,6 +2421,15 @@ function __setManagerChatId(chatId) {
   if (!id) throw new Error('Передайте chatId');
   PROP.setProperty('TELEGRAM_MANAGER_CHAT_ID', id);
   const out = { ok: true, telegramManagerChatId: id, buildVersion: BUILD_VERSION };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
+function __setEventsChatId(chatId) {
+  const id = String(chatId || '').trim();
+  if (!id) throw new Error('Передайте chatId');
+  PROP.setProperty('TELEGRAM_EVENTS_CHAT_ID', id);
+  const out = { ok: true, telegramEventsChatId: id, buildVersion: BUILD_VERSION };
   Logger.log(JSON.stringify(out));
   return out;
 }
@@ -2248,6 +2588,7 @@ function __checkAllButtonReasons(targetUrl) {
   const chatNovosibirsk = String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim();
   const chatFallback = String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
   const managerChatId = String(PROP.getProperty('TELEGRAM_MANAGER_CHAT_ID') || '').trim();
+  const eventsChatId = String(PROP.getProperty('TELEGRAM_EVENTS_CHAT_ID') || '').trim();
 
   const serviceExecUrl = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
   const storedExecUrl = normalizeWebhookUrlToExec(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY));
@@ -2258,7 +2599,8 @@ function __checkAllButtonReasons(targetUrl) {
     spreadsheetIdSet: !!spreadsheetId,
     telegramChatNovosibirskSet: !!chatNovosibirsk,
     telegramChatFallbackSet: !!chatFallback,
-    managerChatIdSet: !!managerChatId
+    managerChatIdSet: !!managerChatId,
+    eventsChatIdSet: !!eventsChatId
   };
   out.checks.urls = {
     serviceExecUrl: serviceExecUrl || '',
@@ -2274,6 +2616,9 @@ function __checkAllButtonReasons(targetUrl) {
   }
   if (!chatNovosibirsk && !chatFallback) {
     pushFailure('Не задан chat id для публикации заявок.', 'Добавьте TELEGRAM_CHAT_NOVOSIBIRSK или TELEGRAM_CHAT_ID.');
+  }
+  if (!eventsChatId) {
+    pushWarning('TELEGRAM_EVENTS_CHAT_ID не задан.', 'Задайте TELEGRAM_EVENTS_CHAT_ID для отдельной группы уведомлений менеджера.');
   }
   if (!resolvedExecUrl) {
     pushFailure('Не удалось определить Web App URL (/exec).', 'Запустите __setWebAppExecUrl("ВАШ_/exec_URL"), затем __setWebhookProd().');
@@ -2381,14 +2726,16 @@ function __checkAllButtonReasons(targetUrl) {
     'take:CLN-12345678',
     'take_CLN-12345678',
     'take|CLN-12345678',
-    '{"action":"take","orderId":"CLN-12345678"}'
+    '{"action":"take","orderId":"CLN-12345678"}',
+    'paid:CLN-12345678'
   ];
   const parserChecks = [];
   for (let i = 0; i < parserSamples.length; i++) {
     const sample = parserSamples[i];
     const parsed = parseCallbackActionData(sample);
     parserChecks.push({ sample: sample, parsed: parsed });
-    if (!parsed || parsed.action !== CALLBACK_ACTIONS.TAKE || parsed.orderId !== 'CLN-12345678') {
+    const expectedAction = sample.indexOf('paid:') === 0 ? CALLBACK_ACTIONS.PAID : CALLBACK_ACTIONS.TAKE;
+    if (!parsed || parsed.action !== expectedAction || parsed.orderId !== 'CLN-12345678') {
       pushFailure('parseCallbackActionData не проходит self-test для: ' + sample, 'Проверьте parseCallbackActionData в текущей версии кода.');
     }
   }
