@@ -46,6 +46,16 @@
 - `__checkConfiguration()`
 - `__checkButtonEndToEnd()`
 
+## Загрузка через clasp
+В репозитории уже настроены:
+- `.clasp.json` (привязан к вашему Script ID)
+- `.claspignore` (отправляет только `.gs`, `.html`, `appsscript.json`)
+
+Остается выполнить локально:
+1. `npm i -g @google/clasp`
+2. `clasp login`
+3. `clasp push -f`
+
 ## Команды менеджера (в Telegram)
 - `/panel` — показать панель
 - `/active` — заявки в работе
