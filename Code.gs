@@ -371,6 +371,21 @@ function setCellByHeader(sheet, rowNum, headerMap, headerName, value) {
   sheet.getRange(rowNum, col).setValue(value);
 }
 
+function patchRowByHeaders(sheet, rowNum, headerMap, patch) {
+  const width = sheet.getLastColumn();
+  const row = sheet.getRange(rowNum, 1, 1, width).getValues()[0];
+  const keys = Object.keys(patch || {});
+
+  for (let i = 0; i < keys.length; i++) {
+    const header = keys[i];
+    const col = headerMap[header];
+    if (!col) continue;
+    row[col - 1] = patch[header];
+  }
+
+  sheet.getRange(rowNum, 1, 1, width).setValues([row]);
+}
+
 function getCellFromRowByHeader(rowValues, headerMap, headerName) {
   const col = headerMap[headerName];
   if (!col) return '';
@@ -705,7 +720,7 @@ function handleCallbackQuery(cb, token) {
   }
 
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(5000)) {
+  if (!lock.tryLock(700)) {
     answerCallback(token, callbackId, '⏳ Сервер занят, нажмите кнопку еще раз');
     return jsonResponse({ ok: true, busy: true, buildVersion: BUILD_VERSION });
   }
@@ -1245,34 +1260,45 @@ function handleMasterPhotoMessage(message, token) {
 function updateOrderTakenByRow(rowNum, masterId, masterName, takenAt) {
   const sheet = getSheet();
   const map = getHeaderMap(sheet);
+  const cleanMasterId = String(masterId || '').trim();
+  const cleanMasterName = String(masterName || '').trim();
+  const cleanTakenAt = String(takenAt || '').trim();
 
-  setCellByHeader(sheet, rowNum, map, 'Статус', 'Взята');
-  setCellByHeader(sheet, rowNum, map, 'Master ID', String(masterId || '').trim());
-  setCellByHeader(sheet, rowNum, map, 'Master Name', String(masterName || '').trim());
-  setCellByHeader(sheet, rowNum, map, 'Дата принятия', String(takenAt || '').trim());
-  setCellByHeader(sheet, rowNum, map, 'Дата прибытия', '');
-  setCellByHeader(sheet, rowNum, map, 'Дата завершения', '');
-  setCellByHeader(sheet, rowNum, map, 'Напоминание 24ч', '');
-  setCellByHeader(sheet, rowNum, map, 'Напоминание 2ч', '');
-  setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Заявка принята: ' + String(takenAt || '').trim());
+  patchRowByHeaders(sheet, rowNum, map, {
+    'Статус': 'Взята',
+    'Master ID': cleanMasterId,
+    'Master Name': cleanMasterName,
+    'Дата принятия': cleanTakenAt,
+    'Дата прибытия': '',
+    'Дата завершения': '',
+    'Напоминание 24ч': '',
+    'Напоминание 2ч': '',
+    'Статус выполнения': 'Заявка принята: ' + cleanTakenAt
+  });
 }
 
 function updateOrderArrivedByRow(rowNum, arrivedAt) {
   const sheet = getSheet();
   const map = getHeaderMap(sheet);
+  const cleanArrivedAt = String(arrivedAt || '').trim();
 
-  setCellByHeader(sheet, rowNum, map, 'Статус', 'На объекте');
-  setCellByHeader(sheet, rowNum, map, 'Дата прибытия', String(arrivedAt || '').trim());
-  setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Прибыл на объект: ' + String(arrivedAt || '').trim());
+  patchRowByHeaders(sheet, rowNum, map, {
+    'Статус': 'На объекте',
+    'Дата прибытия': cleanArrivedAt,
+    'Статус выполнения': 'Прибыл на объект: ' + cleanArrivedAt
+  });
 }
 
 function updateOrderDoneByRow(rowNum, doneAt) {
   const sheet = getSheet();
   const map = getHeaderMap(sheet);
+  const cleanDoneAt = String(doneAt || '').trim();
 
-  setCellByHeader(sheet, rowNum, map, 'Статус', 'Завершена');
-  setCellByHeader(sheet, rowNum, map, 'Дата завершения', String(doneAt || '').trim());
-  setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Работы завершены: ' + String(doneAt || '').trim());
+  patchRowByHeaders(sheet, rowNum, map, {
+    'Статус': 'Завершена',
+    'Дата завершения': cleanDoneAt,
+    'Статус выполнения': 'Работы завершены: ' + cleanDoneAt
+  });
 }
 
 function updateOrderCancelledByRow(rowNum, masterName, cancelledAt) {
@@ -1282,15 +1308,17 @@ function updateOrderCancelledByRow(rowNum, masterName, cancelledAt) {
   const cleanMasterName = String(masterName || '').trim() || 'Мастер';
   const cleanCancelledAt = String(cancelledAt || '').trim();
 
-  setCellByHeader(sheet, rowNum, map, 'Статус', 'Опубликована');
-  setCellByHeader(sheet, rowNum, map, 'Master ID', '');
-  setCellByHeader(sheet, rowNum, map, 'Master Name', '');
-  setCellByHeader(sheet, rowNum, map, 'Дата принятия', '');
-  setCellByHeader(sheet, rowNum, map, 'Дата прибытия', '');
-  setCellByHeader(sheet, rowNum, map, 'Дата завершения', '');
-  setCellByHeader(sheet, rowNum, map, 'Напоминание 24ч', '');
-  setCellByHeader(sheet, rowNum, map, 'Напоминание 2ч', '');
-  setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'Отменена мастером ' + cleanMasterName + ': ' + cleanCancelledAt);
+  patchRowByHeaders(sheet, rowNum, map, {
+    'Статус': 'Опубликована',
+    'Master ID': '',
+    'Master Name': '',
+    'Дата принятия': '',
+    'Дата прибытия': '',
+    'Дата завершения': '',
+    'Напоминание 24ч': '',
+    'Напоминание 2ч': '',
+    'Статус выполнения': 'Отменена мастером ' + cleanMasterName + ': ' + cleanCancelledAt
+  });
 }
 
 function isOrderAssignedToMaster(statusLower, currentMasterId, masterId) {
