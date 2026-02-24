@@ -249,6 +249,27 @@ function looksLikeCreateOrderPayload(body) {
   return false;
 }
 
+function pickPayloadValue(payload, keys, fallback) {
+  const source = payload || {};
+  const list = Array.isArray(keys) ? keys : [keys];
+  for (let i = 0; i < list.length; i++) {
+    const key = String(list[i] || '').trim();
+    if (!key) continue;
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      const value = source[key];
+      if (value === null || value === undefined) continue;
+      if (Array.isArray(value)) {
+        const joined = value.map(function(v) { return String(v || '').trim(); }).filter(Boolean).join(', ');
+        if (joined) return joined;
+        continue;
+      }
+      const text = String(value).trim();
+      if (text) return text;
+    }
+  }
+  return String(fallback || '').trim();
+}
+
 /* ---------- Bot health ---------- */
 
 function checkTelegramBotStatus() {
@@ -494,22 +515,30 @@ function createOrUpdateOrder(payload, action) {
 
   const order = {
     orderId: orderId,
-    createdAt: normalizeCreatedAtValue(payload.createdAt || payload._ts || new Date()),
-    manager: String(payload.manager || '').trim(),
-    customerName: normalizeCustomerName(payload.customerName),
-    customerPhone: String(payload.customerPhone || '').trim(),
-    customerCity: String(payload.customerCity || '').trim(),
-    customerAddress: String(payload.customerAddress || '').trim(),
-    customerFlat: String(payload.customerFlat || '').trim(),
-    orderDate: normalizeOrderDateValue(payload.orderDate),
-    orderTime: normalizeOrderTimeValue(payload.orderTime),
-    orderTotal: String(payload.orderTotal || '0').trim(),
-    masterPay: String(payload.masterPay || '0').trim(),
-    cleaningType: String(payload.cleaningType || '').trim(),
-    area: String(payload.area || '').trim(),
-    chemistry: String(payload.chemistry || '—').trim(),
-    equipment: String(payload.equipment || '—').trim(),
-    worksDescription: String(payload.worksDescription || '').trim()
+    createdAt: normalizeCreatedAtValue(
+      pickPayloadValue(payload, ['createdAt', '_ts', 'Дата создания'], new Date())
+    ),
+    manager: pickPayloadValue(payload, ['manager', 'Менеджер'], ''),
+    customerName: normalizeCustomerName(
+      pickPayloadValue(payload, ['customerName', 'Имя клиента'], '')
+    ),
+    customerPhone: pickPayloadValue(payload, ['customerPhone', 'Телефон клиента'], ''),
+    customerCity: pickPayloadValue(payload, ['customerCity', 'Город'], ''),
+    customerAddress: pickPayloadValue(payload, ['customerAddress', 'Улица и дом'], ''),
+    customerFlat: pickPayloadValue(payload, ['customerFlat', 'Квартира/офис'], ''),
+    orderDate: normalizeOrderDateValue(
+      pickPayloadValue(payload, ['orderDate', 'Дата уборки'], '')
+    ),
+    orderTime: normalizeOrderTimeValue(
+      pickPayloadValue(payload, ['orderTime', 'Время уборки'], '')
+    ),
+    orderTotal: pickPayloadValue(payload, ['orderTotal', 'Сумма заказа'], '0'),
+    masterPay: pickPayloadValue(payload, ['masterPay', 'Зарплата мастерам'], '0'),
+    cleaningType: pickPayloadValue(payload, ['cleaningType', 'Тип уборки'], ''),
+    area: pickPayloadValue(payload, ['area', 'Площадь (м²)'], ''),
+    chemistry: pickPayloadValue(payload, ['chemistry', 'Химия', 'chemistry[]'], '—'),
+    equipment: pickPayloadValue(payload, ['equipment', 'Оборудование', 'equipment[]'], '—'),
+    worksDescription: pickPayloadValue(payload, ['worksDescription', 'Описание работ'], '')
   };
 
   const sheet = getSheet();
@@ -528,7 +557,9 @@ function createOrUpdateOrder(payload, action) {
   // Держим webhook на актуальном /exec, чтобы кнопка не отваливалась.
   ensureWebhookBoundToCurrentExec(false);
 
-  const publish = sendOrderToGroup(order, payload.telegramChannel);
+  const appendedRow = findOrderRowById(orderId);
+  const orderForPublish = appendedRow ? mapSheetOrderToOrderModel(getOrderByRow(appendedRow)) : order;
+  const publish = sendOrderToGroup(orderForPublish, payload.telegramChannel);
   if (!publish.ok) {
     const rowNum = findOrderRowById(orderId);
     if (rowNum) {
@@ -680,6 +711,13 @@ function handleTelegramUpdate(body) {
   try {
     if (body.callback_query) {
       return handleCallbackQuery(body.callback_query, token);
+    }
+
+    if (body.message && body.message.from && (body.message.photo || body.message.document)) {
+      const managerAttachment = handleManagerPaymentAttachmentMessage(body.message, token);
+      if (managerAttachment && managerAttachment.handled) {
+        return jsonResponse({ ok: true, managerAttachment: managerAttachment, buildVersion: BUILD_VERSION });
+      }
     }
 
     if (body.message && body.message.photo && body.message.from) {
@@ -1353,6 +1391,12 @@ function normalizeBotCommandToken(token) {
 function mapManagerPanelTextToCommand(text) {
   const t = String(text || '').trim().toLowerCase();
   if (!t) return '';
+  if (t === '/active') return '/active';
+  if (t === '/planned') return '/planned';
+  if (t === '/pay') return '/pay';
+  if (t === '/panel') return '/panel';
+  if (t === '/help') return '/help';
+  if (t === '/hidepanel') return '/hidepanel';
   if (t === '📋 активные заявки' || t === 'активные заявки') return '/active';
   if (t === '📅 запланированные' || t === 'запланированные') return '/planned';
   if (t === '💳 отправить оплату' || t === 'отправить оплату') return '/pay';
@@ -1383,6 +1427,9 @@ function processManagerCommand(text, token, replyChatId, userId) {
   if (!command) return { handled: false };
 
   if (command === '/pay') {
+    if (parts.length === 1) {
+      return sendManagerPaymentPicker(token, replyChatId);
+    }
     return processManagerPaymentCommand(parts, token, replyChatId, pendingKey);
   }
 
@@ -1414,6 +1461,54 @@ function processManagerCommand(text, token, replyChatId, userId) {
   }
 
   return { handled: false };
+}
+
+function sendManagerPaymentPicker(token, chatId) {
+  const cid = String(chatId || '').trim();
+  if (!cid) return { handled: true, ok: false, error: 'chat_id not set' };
+
+  const sheet = getSheet();
+  const map = getHeaderMap(sheet);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    sendManagerCommandReply(token, cid, 'Сейчас нет заявок для отправки оплаты.', null, buildManagerPanelKeyboard());
+    return { handled: true, ok: true, count: 0 };
+  }
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  const buttons = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const status = String(getCellFromRowByHeader(row, map, 'Статус') || '').toLowerCase().trim();
+    const masterId = String(getCellFromRowByHeader(row, map, 'Master ID') || '').trim();
+    const orderId = normalizeOrderId(getCellFromRowByHeader(row, map, 'Номер заявки'));
+    if (!orderId || !masterId) continue;
+
+    const canPay =
+      status.indexOf('взята') !== -1 ||
+      status.indexOf('на объекте') !== -1 ||
+      status.indexOf('ожидает оплат') !== -1;
+    if (!canPay) continue;
+
+    const masterName = String(getCellFromRowByHeader(row, map, 'Master Name') || '').trim() || 'Мастер';
+    buttons.push([{ text: `${orderId} · ${masterName}`, callback_data: makeCallbackData(CALLBACK_ACTIONS.MANAGER_PAY, orderId) }]);
+    if (buttons.length >= 20) break;
+  }
+
+  if (!buttons.length) {
+    sendManagerCommandReply(token, cid, 'Сейчас нет заявок для отправки оплаты.', null, buildManagerPanelKeyboard());
+    return { handled: true, ok: true, count: 0 };
+  }
+
+  sendManagerCommandReply(
+    token,
+    cid,
+    'Выберите заявку, по которой нужно отправить ссылку/QR мастеру:',
+    null,
+    { inline_keyboard: buttons }
+  );
+
+  return { handled: true, ok: true, count: buttons.length };
 }
 
 function processManagerPaymentCommand(parts, token, replyChatId, userId) {
@@ -1545,9 +1640,9 @@ function sendBotTextMessage(token, chatId, text, useHtml, replyMarkup) {
 function buildManagerPanelKeyboard() {
   return {
     keyboard: [
-      ['📋 Активные заявки', '📅 Запланированные'],
-      ['💳 Отправить оплату', '🧭 Панель'],
-      ['❓ Помощь', '⌨️ Скрыть панель']
+      ['/active', '/planned'],
+      ['/pay', '/panel'],
+      ['/help', '/hidepanel']
     ],
     resize_keyboard: true,
     one_time_keyboard: false
@@ -1557,10 +1652,10 @@ function buildManagerPanelKeyboard() {
 function buildMasterPanelKeyboard() {
   return {
     keyboard: [
-      ['🧾 Моя заявка', '📍 Я приехал'],
-      ['✅ Я завершил', '💳 Оплата получена'],
-      ['❌ Отменить заявку', '🧭 Панель'],
-      ['❓ Помощь', '⌨️ Скрыть панель']
+      ['/myorder', '/arrived'],
+      ['/done', '/paid'],
+      ['/cancel', '/panel'],
+      ['/help', '/hidepanel']
     ],
     resize_keyboard: true,
     one_time_keyboard: false
@@ -1570,6 +1665,14 @@ function buildMasterPanelKeyboard() {
 function mapMasterPanelTextToCommand(text) {
   const t = String(text || '').trim().toLowerCase();
   if (!t) return '';
+  if (t === '/myorder') return '/myorder';
+  if (t === '/arrived') return '/arrived';
+  if (t === '/done') return '/done';
+  if (t === '/paid') return '/paid';
+  if (t === '/cancel') return '/cancel';
+  if (t === '/panel') return '/panel';
+  if (t === '/help') return '/help';
+  if (t === '/hidepanel') return '/hidepanel';
   if (t === '🧾 моя заявка' || t === 'моя заявка') return '/myorder';
   if (t === '📍 я приехал' || t === 'я приехал') return '/arrived';
   if (t === '✅ я завершил' || t === 'я завершил') return '/done';
@@ -1813,6 +1916,75 @@ function handleMasterPhotoMessage(message, token) {
   });
 
   return jsonResponse({ ok: true, buildVersion: BUILD_VERSION });
+}
+
+function handleManagerPaymentAttachmentMessage(message, token) {
+  const userId = String((message.from && message.from.id) || '').trim();
+  const chatId = String((message.chat && message.chat.id) || '').trim();
+  if (!isManagerContext(userId, chatId)) return { handled: false };
+
+  const pendingKey = String(userId || chatId || '').trim();
+  const pending = getManagerPendingPaymentInput(pendingKey);
+  if (!pending || !pending.orderId) return { handled: false };
+
+  const orderId = normalizeOrderId(pending.orderId);
+  const rowNum = findOrderRowById(orderId);
+  if (!rowNum) {
+    clearManagerPendingPaymentInput(pendingKey);
+    sendBotTextMessage(token, chatId, `❌ Заявка ${orderId} не найдена. Введите /pay снова.`, false, buildManagerPanelKeyboard());
+    return { handled: true, ok: false, error: 'order_not_found' };
+  }
+
+  const order = getOrderByRow(rowNum);
+  const masterId = String(order['Master ID'] || '').trim();
+  if (!masterId) {
+    clearManagerPendingPaymentInput(pendingKey);
+    sendBotTextMessage(token, chatId, `❌ У заявки ${orderId} нет назначенного мастера.`, false, buildManagerPanelKeyboard());
+    return { handled: true, ok: false, error: 'master_not_assigned' };
+  }
+
+  let resp = null;
+  const caption = `💳 QR/документ оплаты по заявке ${orderId}`;
+
+  if (message.photo && message.photo.length) {
+    const photo = message.photo[message.photo.length - 1];
+    const fileId = String((photo && photo.file_id) || '').trim();
+    if (fileId) {
+      resp = urlFetchJson(`https://api.telegram.org/bot${token}/sendPhoto`, {
+        method: 'post',
+        payload: JSON.stringify({
+          chat_id: masterId,
+          photo: fileId,
+          caption: caption
+        })
+      });
+    }
+  } else if (message.document) {
+    const fileId = String((message.document && message.document.file_id) || '').trim();
+    if (fileId) {
+      resp = urlFetchJson(`https://api.telegram.org/bot${token}/sendDocument`, {
+        method: 'post',
+        payload: JSON.stringify({
+          chat_id: masterId,
+          document: fileId,
+          caption: caption
+        })
+      });
+    }
+  }
+
+  if (!resp || resp.ok !== true) {
+    sendBotTextMessage(token, chatId, `❌ Не удалось отправить файл мастеру по заявке ${orderId}.`, false, buildManagerPanelKeyboard());
+    return { handled: true, ok: false, error: 'telegram_send_failed', telegram: resp || null };
+  }
+
+  const sheet = getSheet();
+  const map = getHeaderMap(sheet);
+  setCellByHeader(sheet, rowNum, map, 'Статус выполнения', 'QR/документ оплаты отправлен ' + formatDateTime(new Date()));
+  clearManagerPendingPaymentInput(pendingKey);
+  sendBotTextMessage(token, chatId, `✅ QR/документ отправлен мастеру по заявке ${orderId}.`, false, buildManagerPanelKeyboard());
+
+  return { handled: true, ok: true, orderId: orderId };
 }
 
 /* ---------- Order status update helpers ---------- */
@@ -2862,7 +3034,7 @@ function __setTelegramBotCommands() {
     { command: 'hidepanel', description: 'Скрыть панель кнопок' },
     { command: 'active', description: 'Заявки в работе (менеджер)' },
     { command: 'planned', description: 'Запланированные заявки (менеджер)' },
-    { command: 'pay', description: 'Отправить ссылку оплаты мастеру' },
+    { command: 'pay', description: 'Выбрать заявку и отправить оплату' },
     { command: 'help', description: 'Справка по командам' }
   ];
 
@@ -2871,7 +3043,7 @@ function __setTelegramBotCommands() {
     { command: 'hidepanel', description: 'Скрыть панель кнопок' },
     { command: 'active', description: 'Заявки в работе сейчас' },
     { command: 'planned', description: 'Запланированные заявки' },
-    { command: 'pay', description: 'Отправить ссылку оплаты мастеру' },
+    { command: 'pay', description: 'Выбрать заявку и отправить оплату' },
     { command: 'help', description: 'Справка по командам' }
   ];
 
