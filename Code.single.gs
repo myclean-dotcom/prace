@@ -1156,8 +1156,12 @@ function __setWebhookProd(webAppExecUrl) {
   const token = getBotToken();
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан');
 
-  const targetUrl = resolveWebhookExecUrl(webAppExecUrl || '');
-  if (!targetUrl) throw new Error('Не удалось определить URL Web App /exec');
+  const baseExecUrl = resolveWebhookExecUrl(webAppExecUrl || '');
+  if (!baseExecUrl) throw new Error('Не удалось определить URL Web App /exec');
+
+  const webhookTarget = resolveTelegramWebhookTarget(baseExecUrl);
+  const targetUrl = webhookTarget.targetUrl;
+  if (!targetUrl) throw new Error('Не удалось определить целевой URL webhook');
 
   const delResp = tgApi(token, 'deleteWebhook', { drop_pending_updates: false });
   const setResp = tgApi(token, 'setWebhook', {
@@ -1170,7 +1174,9 @@ function __setWebhookProd(webAppExecUrl) {
   const out = {
     ok: !!(setResp && setResp.ok),
     buildVersion: BUILD_VERSION,
+    baseExecUrl: baseExecUrl,
     targetUrl: targetUrl,
+    redirectProbe: webhookTarget.redirectProbe || null,
     deleteWebhook: delResp,
     setWebhook: setResp,
     setCommands: commandsResp,
@@ -1241,19 +1247,26 @@ function __checkSelfAll() {
       const info = tgApi(token, 'getWebhookInfo', {});
       const current = normalizeExecUrl(info && info.result ? info.result.url : '');
       const expected = resolveWebhookExecUrl('');
+      const expectedTarget = resolveTelegramWebhookTarget(expected).targetUrl;
       out.checks.webhook = {
         ok: !!(info && info.ok),
         currentWebhookUrl: current,
         expectedWebhookUrl: expected,
+        expectedWebhookTargetUrl: expectedTarget,
         pendingUpdateCount: info && info.result ? Number(info.result.pending_update_count || 0) : 0,
         allowedUpdates: info && info.result ? (info.result.allowed_updates || []) : [],
         lastErrorMessage: info && info.result ? String(info.result.last_error_message || '') : ''
       };
 
       if (!info.ok) out.failures.push('Ошибка getWebhookInfo');
-      if (current !== expected) out.failures.push('Webhook URL не совпадает с ожидаемым /exec');
+      if (!webhookUrlsEquivalent(current, expectedTarget)) {
+        out.failures.push('Webhook URL не совпадает с ожидаемым целевым URL (после редиректа)');
+      }
       const allowed = out.checks.webhook.allowedUpdates || [];
       if (allowed.indexOf('callback_query') === -1) out.failures.push('Webhook не получает callback_query');
+      if (String(out.checks.webhook.lastErrorMessage || '').indexOf('302') !== -1) {
+        out.failures.push('Telegram получает 302 от webhook (нужно ставить финальный URL без редиректа)');
+      }
     }
   } catch (e3) {
     out.failures.push('webhook check error: ' + e3.message);
@@ -1435,7 +1448,13 @@ function __resetTelegramCommandsScopes() {
   }
 
   const ok = results.every(function(r) {
-    return !!(r.result && (r.result.ok || String(r.result.description || '').toLowerCase().indexOf('commands are empty') !== -1));
+    if (!r.result) return false;
+    if (r.result.ok) return true;
+    const desc = String(r.result.description || '').toLowerCase();
+    if (desc.indexOf('commands are empty') !== -1) return true;
+    // Telegram limitation: chat_administrators scope cannot be used in private chats.
+    if (desc.indexOf("can't use specified scope in private chats") !== -1) return true;
+    return false;
   });
 
   const out = { ok: ok, results: results, buildVersion: BUILD_VERSION };
@@ -1813,6 +1832,10 @@ function normalizeExecUrl(url) {
   let u = normalizeStr(url);
   if (!u) return '';
 
+  if (u.indexOf('script.googleusercontent.com/macros/echo') !== -1) {
+    return u;
+  }
+
   u = u.replace(/\/$/, '');
   if (u.indexOf('/exec') !== -1) {
     u = u.replace(/\/exec.*/, '/exec');
@@ -1833,6 +1856,55 @@ function resolveWebhookExecUrl(preferred) {
   } catch (e) {}
 
   return '';
+}
+
+function resolveTelegramWebhookTarget(execUrl) {
+  const base = normalizeExecUrl(execUrl || '');
+  if (!base) return { targetUrl: '', redirectProbe: null };
+
+  const probe = probeRedirectTarget(base);
+  const redirected = normalizeExecUrl(probe.redirectUrl || '');
+  const target = redirected || base;
+
+  return {
+    targetUrl: target,
+    redirectProbe: probe
+  };
+}
+
+function probeRedirectTarget(url) {
+  try {
+    const resp = UrlFetchApp.fetch(url, {
+      method: 'get',
+      muteHttpExceptions: true,
+      followRedirects: false
+    });
+
+    const code = resp.getResponseCode();
+    const headers = resp.getAllHeaders ? resp.getAllHeaders() : {};
+    const location = normalizeStr(headers.Location || headers.location || '');
+
+    return {
+      ok: true,
+      url: url,
+      statusCode: code,
+      redirectUrl: location
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      url: url,
+      error: e.message,
+      redirectUrl: ''
+    };
+  }
+}
+
+function webhookUrlsEquivalent(current, expectedTarget) {
+  const a = normalizeExecUrl(current || '');
+  const b = normalizeExecUrl(expectedTarget || '');
+  if (!a || !b) return a === b;
+  return a === b;
 }
 
 function tryParseJson(v) {
