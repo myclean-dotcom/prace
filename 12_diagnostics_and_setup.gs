@@ -177,6 +177,7 @@ function __setEventsChatId(chatId) {
 function __setWebAppExecUrl(url) {
   let normalized = normalizeWebhookUrlToExec(url);
   if (!normalized) normalized = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
+  if (!normalized) normalized = normalizeWebhookUrlToExec(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY));
 
   if (!normalized) {
     const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
@@ -188,7 +189,7 @@ function __setWebAppExecUrl(url) {
     }
   }
 
-  if (!normalized) throw new Error('Передайте корректный URL Web App (/exec)');
+  if (!normalized) throw new Error('Не удалось автоматически определить URL Web App (/exec). Передайте URL вручную.');
   PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, normalized);
   const out = {
     ok: true,
@@ -221,8 +222,10 @@ function __setWebhookProd() {
     return outDirect;
   }
 
-  const url = resolveWebhookExecUrl('');
-  if (!url) throw new Error('Не удалось определить URL Web App');
+  const baseExecUrl = resolveWebhookExecUrl('');
+  if (!baseExecUrl) throw new Error('Не удалось определить URL Web App');
+  const targetInfo = resolveTelegramWebhookTarget(baseExecUrl);
+  const targetUrl = targetInfo && targetInfo.targetUrl ? targetInfo.targetUrl : baseExecUrl;
 
   const del = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
     method: 'post',
@@ -232,19 +235,22 @@ function __setWebhookProd() {
   const set = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
     method: 'post',
     payload: JSON.stringify({
-      url: url,
+      url: targetUrl,
       allowed_updates: ['message', 'edited_message', 'callback_query']
     })
   });
 
   const info = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
-  PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, url);
+  PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, baseExecUrl);
   PROP.setProperty(WEBHOOK_LAST_SYNC_TS_PROPERTY, String(Date.now()));
 
   const out = {
-    ok: true,
+    ok: !!(set && set.ok === true),
     buildVersion: BUILD_VERSION,
-    targetUrl: url,
+    baseExecUrl: baseExecUrl,
+    targetUrl: targetUrl,
+    redirectProbe: targetInfo ? targetInfo.redirectProbe : null,
+    redirectProbeGet: targetInfo ? targetInfo.redirectProbeGet : null,
     deleteWebhook: del,
     setWebhook: set,
     webhookInfo: info
@@ -500,6 +506,7 @@ function __checkAllButtonReasons(targetUrl) {
       pushFailure('Не удалось получить getWebhookInfo.', 'Проверьте токен и доступность Telegram API.');
     } else {
       const currentWebhookUrl = normalizeWebhookUrlToExec(webhookInfo.result.url);
+      const expectedWebhookTargetUrl = resolveTelegramWebhookTarget(resolvedExecUrl || '').targetUrl || (resolvedExecUrl || '');
       const pending = Number(webhookInfo.result.pending_update_count || 0);
       const allowed = webhookInfo.result.allowed_updates || [];
       const hasCallback = Array.isArray(allowed)
@@ -511,6 +518,7 @@ function __checkAllButtonReasons(targetUrl) {
       out.checks.webhookNormalized = {
         currentWebhookUrl: currentWebhookUrl || '',
         expectedWebhookUrl: resolvedExecUrl || '',
+        expectedWebhookTargetUrl: expectedWebhookTargetUrl || '',
         pendingUpdateCount: pending,
         allowedUpdates: allowed,
         hasCallbackQuery: hasCallback,
@@ -520,8 +528,8 @@ function __checkAllButtonReasons(targetUrl) {
 
       if (!currentWebhookUrl) {
         pushFailure('Webhook в Telegram не установлен.', 'Запустите __setWebhookProd().');
-      } else if (resolvedExecUrl && currentWebhookUrl !== resolvedExecUrl) {
-        pushFailure('Webhook указывает не на этот /exec URL.', 'Запустите __setWebhookProd() в текущем проекте.');
+      } else if (expectedWebhookTargetUrl && !webhookUrlsEquivalent(currentWebhookUrl, expectedWebhookTargetUrl)) {
+        pushFailure('Webhook указывает не на ожидаемый URL (после редиректа).', 'Запустите __setWebhookProd() в текущем проекте.');
       }
 
       if (!hasCallback) {
@@ -534,6 +542,9 @@ function __checkAllButtonReasons(targetUrl) {
 
       if (lastError) {
         pushWarning('Telegram сообщает last_error_message: ' + lastError, 'После исправлений нажмите кнопку и снова запустите __checkAllButtonReasons().');
+      }
+      if (lastError.indexOf('302') !== -1) {
+        pushFailure('Telegram получает 302 от webhook (нужно ставить финальный URL без редиректа).', 'Запустите __setWebhookProd() в текущей версии проекта.');
       }
     }
   }

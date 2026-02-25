@@ -3,9 +3,16 @@
 function normalizeWebhookUrlToExec(url) {
   const value = String(url || '').trim();
   if (!value) return '';
-  if (value.indexOf('/exec') !== -1) return value;
-  if (value.indexOf('/dev') !== -1) return value.replace(/\/dev(?:$|\?)/, '/exec');
-  return value;
+
+  // Keep final googleusercontent webhook targets intact (contains required query params).
+  if (value.indexOf('script.googleusercontent.com/macros/echo') !== -1) {
+    return value;
+  }
+
+  const clean = value.replace(/\/$/, '');
+  if (clean.indexOf('/exec') !== -1) return clean.replace(/\/exec(?:[?#].*)?$/, '/exec');
+  if (clean.indexOf('/dev') !== -1) return clean.replace(/\/dev(?:[?#].*)?$/, '/exec');
+  return clean;
 }
 
 function getCurrentServiceExecUrl() {
@@ -29,17 +36,105 @@ function resolveWebhookExecUrl(preferredUrl) {
   return '';
 }
 
+function getHeaderValue(headers, name) {
+  const wanted = String(name || '').trim().toLowerCase();
+  if (!headers || !wanted) return '';
+  const keys = Object.keys(headers || {});
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (String(key || '').toLowerCase() !== wanted) continue;
+    const value = headers[key];
+    if (Array.isArray(value)) {
+      return String(value.length ? value[0] : '').trim();
+    }
+    return String(value || '').trim();
+  }
+  return '';
+}
+
+function probeWebhookRedirectTarget(url, method) {
+  const targetUrl = normalizeWebhookUrlToExec(url);
+  if (!targetUrl) {
+    return { ok: false, url: '', method: 'get', statusCode: 0, redirectUrl: '', error: 'empty url' };
+  }
+
+  const httpMethod = String(method || 'get').toLowerCase() === 'post' ? 'post' : 'get';
+  const params = {
+    method: httpMethod,
+    muteHttpExceptions: true,
+    followRedirects: false
+  };
+
+  if (httpMethod === 'post') {
+    params.contentType = 'application/x-www-form-urlencoded; charset=UTF-8';
+    params.payload = 'action=probe_version';
+  }
+
+  try {
+    const resp = UrlFetchApp.fetch(targetUrl, params);
+    const headers = resp.getAllHeaders ? resp.getAllHeaders() : {};
+    const location = getHeaderValue(headers, 'location');
+    return {
+      ok: true,
+      url: targetUrl,
+      method: httpMethod,
+      statusCode: resp.getResponseCode(),
+      redirectUrl: location
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      url: targetUrl,
+      method: httpMethod,
+      statusCode: 0,
+      redirectUrl: '',
+      error: err.message
+    };
+  }
+}
+
+function resolveTelegramWebhookTarget(execUrl) {
+  const baseExecUrl = normalizeWebhookUrlToExec(execUrl);
+  if (!baseExecUrl) return { targetUrl: '', redirectProbe: null, redirectProbeGet: null };
+
+  // Telegram sends POST updates, so detect redirect target with POST first.
+  const postProbe = probeWebhookRedirectTarget(baseExecUrl, 'post');
+  const postTarget = normalizeWebhookUrlToExec(postProbe && postProbe.redirectUrl ? postProbe.redirectUrl : '');
+
+  let getProbe = null;
+  let targetUrl = postTarget;
+  if (!targetUrl) {
+    getProbe = probeWebhookRedirectTarget(baseExecUrl, 'get');
+    targetUrl = normalizeWebhookUrlToExec(getProbe && getProbe.redirectUrl ? getProbe.redirectUrl : '');
+  }
+
+  return {
+    targetUrl: targetUrl || baseExecUrl,
+    redirectProbe: postProbe,
+    redirectProbeGet: getProbe
+  };
+}
+
+function webhookUrlsEquivalent(currentUrl, expectedUrl) {
+  const current = normalizeWebhookUrlToExec(currentUrl);
+  const expected = normalizeWebhookUrlToExec(expectedUrl);
+  if (!current || !expected) return current === expected;
+  return current === expected;
+}
+
 function ensureWebhookBoundToCurrentExec(force) {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
   if (!token) return { ok: false, reason: 'token_not_set' };
 
-  const targetUrl = resolveWebhookExecUrl('');
-  if (!targetUrl) return { ok: false, reason: 'exec_url_not_set' };
+  const baseExecUrl = resolveWebhookExecUrl('');
+  if (!baseExecUrl) return { ok: false, reason: 'exec_url_not_set' };
+  const targetInfo = resolveTelegramWebhookTarget(baseExecUrl);
+  const targetUrl = targetInfo && targetInfo.targetUrl ? targetInfo.targetUrl : baseExecUrl;
 
   const now = Date.now();
   const lastSync = Number(PROP.getProperty(WEBHOOK_LAST_SYNC_TS_PROPERTY) || '0');
   if (!force && lastSync > 0 && (now - lastSync) < 3 * 60 * 1000) {
-    return { ok: true, skipped: true, targetUrl: targetUrl };
+    return { ok: true, skipped: true, baseExecUrl: baseExecUrl, targetUrl: targetUrl };
   }
 
   const info = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
@@ -47,7 +142,7 @@ function ensureWebhookBoundToCurrentExec(force) {
     ? normalizeWebhookUrlToExec(info.result.url)
     : '';
 
-  if (currentUrl !== targetUrl) {
+  if (!webhookUrlsEquivalent(currentUrl, targetUrl)) {
     const setResp = urlFetchJson(`https://api.telegram.org/bot${token}/setWebhook`, {
       method: 'post',
       payload: JSON.stringify({
@@ -61,10 +156,18 @@ function ensureWebhookBoundToCurrentExec(force) {
     }
   }
 
-  PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, targetUrl);
+  PROP.setProperty(WEBAPP_EXEC_URL_PROPERTY, baseExecUrl);
   PROP.setProperty(WEBHOOK_LAST_SYNC_TS_PROPERTY, String(now));
 
-  return { ok: true, targetUrl: targetUrl, currentWebhookUrl: currentUrl, changed: currentUrl !== targetUrl };
+  return {
+    ok: true,
+    baseExecUrl: baseExecUrl,
+    targetUrl: targetUrl,
+    redirectProbe: targetInfo ? targetInfo.redirectProbe : null,
+    redirectProbeGet: targetInfo ? targetInfo.redirectProbeGet : null,
+    currentWebhookUrl: currentUrl,
+    changed: !webhookUrlsEquivalent(currentUrl, targetUrl)
+  };
 }
 
 /* ---------- City/chat resolve ---------- */
@@ -162,4 +265,3 @@ function jsonResponse(obj) {
     .createTextOutput(JSON.stringify(obj || {}))
     .setMimeType(ContentService.MimeType.JSON);
 }
-

@@ -1,6 +1,0 @@
-00-READ-ME-FIRST (архив)
-
-Актуальные файлы:
-README.md
-QUICK_START.md
-SETUP_GUIDE.md

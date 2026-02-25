@@ -1137,8 +1137,23 @@ function checkTelegramBotStatus() {
 // =========================
 
 function __setWebAppExecUrl(webAppExecUrl) {
-  const url = normalizeExecUrl(webAppExecUrl);
-  if (!url) throw new Error('Передайте корректный URL Web App (/exec)');
+  let url = normalizeExecUrl(webAppExecUrl);
+  if (!url) {
+    try {
+      url = normalizeExecUrl(ScriptApp.getService().getUrl());
+    } catch (e) {}
+  }
+  if (!url) url = normalizeExecUrl(PROP.getProperty(PROP_WEBAPP_EXEC_URL));
+  if (!url) {
+    const token = getBotToken();
+    if (token) {
+      const info = tgApi(token, 'getWebhookInfo', {});
+      if (info && info.ok === true && info.result && info.result.url) {
+        url = normalizeExecUrl(info.result.url);
+      }
+    }
+  }
+  if (!url) throw new Error('Не удалось автоматически определить URL Web App (/exec). Передайте URL вручную.');
 
   PROP.setProperty(PROP_WEBAPP_EXEC_URL, url);
 
@@ -1177,6 +1192,7 @@ function __setWebhookProd(webAppExecUrl) {
     baseExecUrl: baseExecUrl,
     targetUrl: targetUrl,
     redirectProbe: webhookTarget.redirectProbe || null,
+    redirectProbeGet: webhookTarget.redirectProbeGet || null,
     deleteWebhook: delResp,
     setWebhook: setResp,
     setCommands: commandsResp,
@@ -1860,40 +1876,75 @@ function resolveWebhookExecUrl(preferred) {
 
 function resolveTelegramWebhookTarget(execUrl) {
   const base = normalizeExecUrl(execUrl || '');
-  if (!base) return { targetUrl: '', redirectProbe: null };
+  if (!base) return { targetUrl: '', redirectProbe: null, redirectProbeGet: null };
 
-  const probe = probeRedirectTarget(base);
-  const redirected = normalizeExecUrl(probe.redirectUrl || '');
-  const target = redirected || base;
+  // Telegram sends POST callbacks, so detect redirect target with POST first.
+  const postProbe = probeRedirectTarget(base, 'post');
+  const postTarget = normalizeExecUrl(postProbe && postProbe.redirectUrl ? postProbe.redirectUrl : '');
+
+  let getProbe = null;
+  let target = postTarget;
+  if (!target) {
+    getProbe = probeRedirectTarget(base, 'get');
+    target = normalizeExecUrl(getProbe && getProbe.redirectUrl ? getProbe.redirectUrl : '');
+  }
 
   return {
-    targetUrl: target,
-    redirectProbe: probe
+    targetUrl: target || base,
+    redirectProbe: postProbe,
+    redirectProbeGet: getProbe
   };
 }
 
-function probeRedirectTarget(url) {
+function getHeaderValue(headers, name) {
+  const wanted = String(name || '').toLowerCase().trim();
+  if (!headers || !wanted) return '';
+
+  const keys = Object.keys(headers || {});
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (String(key || '').toLowerCase() !== wanted) continue;
+    const value = headers[key];
+    if (Array.isArray(value)) return normalizeStr(value.length ? value[0] : '');
+    return normalizeStr(value);
+  }
+
+  return '';
+}
+
+function probeRedirectTarget(url, method) {
+  const targetUrl = normalizeExecUrl(url);
+  const httpMethod = String(method || 'get').toLowerCase() === 'post' ? 'post' : 'get';
+
   try {
-    const resp = UrlFetchApp.fetch(url, {
-      method: 'get',
+    const params = {
+      method: httpMethod,
       muteHttpExceptions: true,
       followRedirects: false
-    });
+    };
+    if (httpMethod === 'post') {
+      params.contentType = 'application/x-www-form-urlencoded; charset=UTF-8';
+      params.payload = 'action=probe_version';
+    }
+
+    const resp = UrlFetchApp.fetch(targetUrl, params);
 
     const code = resp.getResponseCode();
     const headers = resp.getAllHeaders ? resp.getAllHeaders() : {};
-    const location = normalizeStr(headers.Location || headers.location || '');
+    const location = getHeaderValue(headers, 'location');
 
     return {
       ok: true,
-      url: url,
+      url: targetUrl,
+      method: httpMethod,
       statusCode: code,
       redirectUrl: location
     };
   } catch (e) {
     return {
       ok: false,
-      url: url,
+      url: targetUrl,
+      method: httpMethod,
       error: e.message,
       redirectUrl: ''
     };
