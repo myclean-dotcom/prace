@@ -1163,7 +1163,7 @@ function __setWebhookProd(webAppExecUrl) {
   const targetUrl = webhookTarget.targetUrl;
   if (!targetUrl) throw new Error('Не удалось определить целевой URL webhook');
 
-  const delResp = tgApi(token, 'deleteWebhook', { drop_pending_updates: false });
+  const delResp = tgApi(token, 'deleteWebhook', { drop_pending_updates: true });
   const setResp = tgApi(token, 'setWebhook', {
     url: targetUrl,
     allowed_updates: ['message', 'edited_message', 'callback_query']
