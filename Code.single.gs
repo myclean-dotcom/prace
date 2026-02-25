@@ -1,9 +1,9 @@
 // ============================================================
 // Apex Clean - Google Apps Script backend (single-file rewrite)
-// Build: 2026-02-25-button-stable-v1
+// Build: 2026-02-25-group-test-v1
 // ============================================================
 
-const BUILD_VERSION = '2026-02-25-button-stable-v1';
+const BUILD_VERSION = '2026-02-25-group-test-v1';
 const API_SIGNATURE = 'apex-backend-v3';
 
 const PROP = PropertiesService.getScriptProperties();
@@ -30,6 +30,7 @@ const ACTION_ARRIVE = 'arrive';
 const ACTION_DONE = 'done';
 const ACTION_PAID = 'paid';
 const ACTION_CANCEL = 'cancel';
+const ACTION_TEST = 'test';
 
 const REQUIRED_HEADERS = [
   'Номер заявки',
@@ -547,7 +548,17 @@ function handleCallbackQuery(cb, token) {
   const action = parsed.action;
   const orderId = parsed.orderId;
 
-  if (!action || !orderId) {
+  if (!action) {
+    answerCallback(token, callbackId, '❌ Некорректная кнопка');
+    return { ok: false, error: 'bad callback data', rawData: rawData };
+  }
+
+  if (action === ACTION_TEST) {
+    answerCallback(token, callbackId, '✅ Тестовая кнопка работает');
+    return { ok: true, action: ACTION_TEST, orderId: orderId, buildVersion: BUILD_VERSION };
+  }
+
+  if (!orderId) {
     answerCallback(token, callbackId, '❌ Некорректная кнопка');
     return { ok: false, error: 'bad callback data', rawData: rawData };
   }
@@ -720,6 +731,7 @@ function handleBotTextCommand(msg, token) {
   const normalizedCommand = parseBotCommand(rawText);
   const text = rawText.toLowerCase();
   const chatId = String(msg.chat.id);
+  const userId = String(msg.from && msg.from.id ? msg.from.id : '');
 
   if (
     normalizedCommand === '/start' ||
@@ -741,6 +753,7 @@ function handleBotTextCommand(msg, token) {
     out += '📋 Команды бота:\n';
     out += '/menu - показать меню\n';
     out += '/help - короткая справка\n';
+    out += '/testgroup - тест кнопки в группе (менеджер)\n';
     out += '\nКнопки по заявке:\n';
     out += '1) ВЫХОЖУ НА ЗАЯВКУ\n';
     out += '2) ПРИЕХАЛ НА ЗАЯВКУ\n';
@@ -757,10 +770,66 @@ function handleBotTextCommand(msg, token) {
     return;
   }
 
+  if (normalizedCommand === '/testgroup') {
+    if (!isManagerUserOrChat(userId, chatId)) {
+      tgSendMessage(token, chatId, '❌ Команда доступна только менеджеру.');
+      return;
+    }
+
+    const test = sendGroupCallbackTestMessage(token);
+    if (test.ok) {
+      tgSendMessage(token, chatId, '✅ Тест отправлен в группу. Нажмите кнопку в группе.');
+    } else {
+      tgSendMessage(token, chatId, '❌ Не удалось отправить тест в группу. Проверьте TELEGRAM_CHAT_ID и права бота.');
+    }
+    return;
+  }
+
   if (text === '📋 меню команд' || text === 'меню') {
     tgSendMessage(token, chatId, 'Используйте /menu для полного списка команд.');
     return;
   }
+}
+
+function isManagerUserOrChat(userId, chatId) {
+  const managerId = normalizeStr(PROP.getProperty(PROP_MANAGER_CHAT_ID));
+  if (!managerId) return false;
+  const uid = normalizeStr(userId);
+  const cid = normalizeStr(chatId);
+  return uid === managerId || cid === managerId;
+}
+
+function sendGroupCallbackTestMessage(token) {
+  const targetChatId = normalizeStr(PROP.getProperty(PROP_CHAT_FALLBACK)) || normalizeStr(PROP.getProperty(PROP_CHAT_NSK));
+  if (!targetChatId) {
+    return { ok: false, error: 'TELEGRAM_CHAT_ID/TELEGRAM_CHAT_NOVOSIBIRSK не задан' };
+  }
+
+  const testId = 'TST-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMddHHmmss');
+  const callbackData = makeCallbackData(ACTION_TEST, testId);
+  const keyboard = {
+    inline_keyboard: [[
+      { text: '🧪 ПРОВЕРИТЬ CALLBACK', callback_data: callbackData }
+    ]]
+  };
+
+  const text = [
+    '🧪 ТЕСТ КНОПКИ ГРУППЫ',
+    'buildVersion: ' + BUILD_VERSION,
+    'testId: ' + testId,
+    '',
+    'Нажмите кнопку ниже. Бот должен показать всплывающее подтверждение.'
+  ].join('\n');
+
+  const resp = tgSendMessage(token, targetChatId, text, keyboard);
+  return {
+    ok: !!(resp && resp.ok === true),
+    targetChatId: targetChatId,
+    testId: testId,
+    callbackData: callbackData,
+    telegram: resp || null,
+    buildVersion: BUILD_VERSION
+  };
 }
 
 function parseBotCommand(text) {
@@ -1381,6 +1450,19 @@ function __checkButtonEndToEnd() {
   return __checkSelfAll();
 }
 
+function __sendTestGroupMessage() {
+  const token = getBotToken();
+  if (!token) {
+    const outNoToken = { ok: false, error: 'TELEGRAM_BOT_TOKEN не задан', buildVersion: BUILD_VERSION };
+    Logger.log(JSON.stringify(outNoToken));
+    return outNoToken;
+  }
+
+  const out = sendGroupCallbackTestMessage(token);
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
 function __setTelegramBotCommands() {
   const token = getBotToken();
   if (!token) {
@@ -1393,6 +1475,7 @@ function __setTelegramBotCommands() {
     { command: 'start', description: 'Запуск и краткая справка' },
     { command: 'menu', description: 'Показать меню команд' },
     { command: 'help', description: 'Помощь по кнопкам заявки' },
+    { command: 'testgroup', description: 'Отправить тест кнопки в группу' },
     { command: 'id', description: 'Показать ваш chat_id' },
     { command: 'myid', description: 'Показать user_id и chat_id' }
   ];

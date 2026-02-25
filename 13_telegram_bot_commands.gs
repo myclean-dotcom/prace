@@ -52,6 +52,7 @@ function mapManagerPanelTextToCommand(text) {
   if (t === '/setevents') return '/setevents';
   if (t === '/setgroup') return '/setgroup';
   if (t === '/setnsk') return '/setnsk';
+  if (t === '/testgroup') return '/testgroup';
   if (t === '/active') return '/active';
   if (t === '/planned') return '/planned';
   if (t === '/pay') return '/pay';
@@ -63,6 +64,7 @@ function mapManagerPanelTextToCommand(text) {
   if (t === '📋 активные заявки' || t === 'активные заявки') return '/active';
   if (t === '📅 запланированные' || t === 'запланированные') return '/planned';
   if (t === '💳 отправить оплату' || t === 'отправить оплату') return '/pay';
+  if (t === '🧪 тест группы' || t === 'тест группы') return '/testgroup';
   if (t === '🧭 панель' || t === 'панель') return '/panel';
   if (t === '📚 команды' || t === 'команды') return '/menu';
   if (t === '❓ помощь' || t === 'помощь') return '/help';
@@ -170,6 +172,10 @@ function processManagerCommand(text, token, replyChatId, userId, managerMode) {
     return processManagerPaymentCommand(parts, token, replyChatId, pendingKey);
   }
 
+  if (command === '/testgroup') {
+    return sendGroupCallbackTestMessage(token, replyChatId, userId);
+  }
+
   if (command === '/active') {
     return sendOrdersDigestToChat(token, replyChatId, 'active');
   }
@@ -189,6 +195,7 @@ function processManagerCommand(text, token, replyChatId, userId, managerMode) {
       '<code>/active</code> — заявки в работе сейчас',
       '<code>/planned</code> — запланированные заявки с назначенным мастером',
       '<code>/pay НОМЕР_ЗАЯВКИ ССЫЛКА [QR: ...]</code> — отправить мастеру оплату',
+      '<code>/testgroup</code> — отправить тест кнопки в общую группу',
       '<code>/setevents</code> — назначить текущий чат как чат событий',
       '<code>/setgroup</code> — назначить текущий чат как общий чат заявок',
       '<code>/setnsk</code> — назначить текущий чат Новосибирска',
@@ -383,14 +390,68 @@ function sendBotTextMessage(token, chatId, text, useHtml, replyMarkup) {
   });
 }
 
+function sendGroupCallbackTestMessage(token, replyChatId, userId) {
+  const fallbackChat = String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
+  const nskChat = String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim();
+  const targetChatId = String(fallbackChat || nskChat || '').trim();
+  if (!targetChatId) {
+    sendManagerCommandReply(token, replyChatId, '❌ Не задан TELEGRAM_CHAT_ID/TELEGRAM_CHAT_NOVOSIBIRSK');
+    return { handled: true, ok: false, error: 'group_chat_not_set' };
+  }
+
+  const testId = 'TST-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMddHHmmss');
+  const callbackData = makeCallbackData(CALLBACK_ACTIONS.TEST, testId);
+  const keyboard = {
+    inline_keyboard: [[
+      { text: '🧪 ПРОВЕРИТЬ CALLBACK', callback_data: callbackData }
+    ]]
+  };
+
+  const lines = [
+    '🧪 ТЕСТ КНОПКИ ГРУППЫ',
+    `buildVersion: ${BUILD_VERSION}`,
+    `testId: ${testId}`,
+    '',
+    'Нажмите кнопку ниже. Если callback работает, бот покажет всплывающее подтверждение.'
+  ];
+
+  const sendResp = sendBotTextMessage(token, targetChatId, lines.join('\n'), false, keyboard);
+  const ok = !!(sendResp && sendResp.ok === true && sendResp.result);
+
+  if (ok) {
+    sendManagerCommandReply(
+      token,
+      replyChatId,
+      `✅ Тест отправлен в группу <code>${escapeTelegramHtml(targetChatId)}</code>.\nНажмите кнопку в группе.`,
+      'HTML',
+      buildManagerPanelKeyboard()
+    );
+  } else {
+    sendManagerCommandReply(token, replyChatId, '❌ Не удалось отправить тест в группу. Проверьте права бота и chat_id.');
+  }
+
+  return {
+    handled: true,
+    ok: ok,
+    command: '/testgroup',
+    requestedByUserId: String(userId || '').trim(),
+    requestedByChatId: String(replyChatId || '').trim(),
+    targetChatId: targetChatId,
+    testId: testId,
+    callbackData: callbackData,
+    telegram: sendResp || null
+  };
+}
+
 function buildManagerPanelKeyboard() {
   return {
     keyboard: [
       ['/active', '/planned'],
       ['/pay', '/panel'],
       ['/setevents', '/setgroup'],
-      ['/setnsk', '/myid'],
-      ['/menu', '/help'],
+      ['/setnsk', '/testgroup'],
+      ['/myid', '/menu'],
+      ['/help'],
       ['/hidepanel']
     ],
     resize_keyboard: true,

@@ -63,6 +63,16 @@ function handleCallbackQuery(cb, token) {
     return jsonResponse({ ok: true, ignored: true, buildVersion: BUILD_VERSION });
   }
 
+  if (parsed.action === CALLBACK_ACTIONS.TEST) {
+    answerCallback(token, callbackId, '✅ Тестовая кнопка работает');
+    return jsonResponse({
+      ok: true,
+      action: CALLBACK_ACTIONS.TEST,
+      orderId: normalizeOrderId(parsed.orderId || ''),
+      buildVersion: BUILD_VERSION
+    });
+  }
+
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(700)) {
     answerCallback(token, callbackId, '⏳ Сервер занят, нажмите кнопку еще раз');
@@ -457,7 +467,7 @@ function parseCallbackActionData(data) {
   if (!raw) return null;
 
   // Новый строгий формат: action:ORDER_ID
-  const strict = raw.match(/^(take|arrive|done|paid|cancel|managerpay):(.+)$/i);
+  const strict = raw.match(/^(take|arrive|done|paid|cancel|managerpay|test):(.+)$/i);
   if (strict) {
     const action = String(strict[1] || '').trim().toLowerCase();
     const orderId = normalizeOrderId(strict[2]);
@@ -465,7 +475,7 @@ function parseCallbackActionData(data) {
   }
 
   // Совместимость: action|ORDER_ID
-  const vPipe = raw.match(/^(take|arrive|done|paid|cancel|managerpay)\|(.+)$/i);
+  const vPipe = raw.match(/^(take|arrive|done|paid|cancel|managerpay|test)\|(.+)$/i);
   if (vPipe) {
     const action = String(vPipe[1] || '').trim().toLowerCase();
     const orderId = normalizeOrderId(vPipe[2]);
@@ -473,7 +483,7 @@ function parseCallbackActionData(data) {
   }
 
   // Совместимость: action_ORDER_ID
-  const vUnderscore = raw.match(/^(take|arrive|done|paid|cancel|managerpay)_(.+)$/i);
+  const vUnderscore = raw.match(/^(take|arrive|done|paid|cancel|managerpay|test)_(.+)$/i);
   if (vUnderscore) {
     const action = String(vUnderscore[1] || '').trim().toLowerCase();
     const orderId = normalizeOrderId(vUnderscore[2]);
@@ -481,7 +491,7 @@ function parseCallbackActionData(data) {
   }
 
   // Совместимость: просто "take" (без id)
-  const onlyAction = raw.match(/^(take|arrive|done|paid|cancel|managerpay)$/i);
+  const onlyAction = raw.match(/^(take|arrive|done|paid|cancel|managerpay|test)$/i);
   if (onlyAction) {
     return { action: String(onlyAction[1] || '').toLowerCase(), orderId: '' };
   }
@@ -638,4 +648,3 @@ function clearManagerPendingPaymentInput(managerId) {
   if (!mid) return;
   PROP.deleteProperty(MANAGER_PENDING_PAY_PREFIX + mid);
 }
-

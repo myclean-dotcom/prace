@@ -281,6 +281,7 @@ function __setTelegramBotCommands() {
     { command: 'setevents', description: 'Назначить этот чат чатом событий' },
     { command: 'setgroup', description: 'Назначить этот чат группой заявок' },
     { command: 'setnsk', description: 'Назначить этот чат Новосибирском' },
+    { command: 'testgroup', description: 'Отправить тест кнопки в группу' },
     { command: 'myorder', description: 'Моя текущая заявка' },
     { command: 'arrived', description: 'Я приехал на объект' },
     { command: 'done', description: 'Работы завершены' },
@@ -301,6 +302,7 @@ function __setTelegramBotCommands() {
     { command: 'setevents', description: 'Назначить этот чат чатом событий' },
     { command: 'setgroup', description: 'Назначить этот чат группой заявок' },
     { command: 'setnsk', description: 'Назначить этот чат Новосибирском' },
+    { command: 'testgroup', description: 'Отправить тест кнопки в группу' },
     { command: 'menu', description: 'Сценарии кнопок и команды' },
     { command: 'panel', description: 'Показать панель кнопок' },
     { command: 'hidepanel', description: 'Скрыть панель кнопок' },
@@ -716,6 +718,16 @@ function __testTelegramSend() {
 
   Logger.log(JSON.stringify(resp));
   return resp;
+}
+
+function __sendTestGroupMessage() {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан');
+
+  const managerChat = String(getManagerChatId() || PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
+  const out = sendGroupCallbackTestMessage(token, managerChat, managerChat);
+  Logger.log(JSON.stringify(out));
+  return out;
 }
 
 function __testCreateOrder() {
