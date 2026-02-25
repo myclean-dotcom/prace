@@ -1,0 +1,23 @@
+{
+  "name": "prace",
+  "version": "1.0.0",
+  "description": "Direct Telegram bot for Apex Clean",
+  "main": "direct_telegram_bot.js",
+  "scripts": {
+    "start": "node direct_telegram_bot.js",
+    "start:bot": "node direct_telegram_bot.js",
+    "test": "node --check direct_telegram_bot.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/myclean-dotcom/prace.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/myclean-dotcom/prace/issues"
+  },
+  "homepage": "https://github.com/myclean-dotcom/prace#readme"
+}
