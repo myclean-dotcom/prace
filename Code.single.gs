@@ -1854,7 +1854,9 @@ function normalizeExecUrl(url) {
 
   u = u.replace(/\/$/, '');
   if (u.indexOf('/exec') !== -1) {
-    u = u.replace(/\/exec.*/, '/exec');
+    u = u.replace(/\/exec(?:[?#].*)?$/, '/exec');
+  } else if (u.indexOf('/dev') !== -1) {
+    u = u.replace(/\/dev(?:[?#].*)?$/, '/exec');
   }
   return u;
 }
