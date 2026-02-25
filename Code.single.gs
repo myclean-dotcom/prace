@@ -752,7 +752,7 @@ function handleBotTextCommand(msg, token) {
     return;
   }
 
-  if (normalizedCommand === '/id' || text === '🆔 мой chat id') {
+  if (normalizedCommand === '/id' || normalizedCommand === '/myid' || text === '🆔 мой chat id') {
     tgSendMessage(token, chatId, 'Ваш chat_id: <code>' + escapeTg(chatId) + '</code>');
     return;
   }
@@ -1220,16 +1220,23 @@ function __checkSelfAll() {
     const token = getBotToken();
     if (token) {
       const cmdResp = tgApi(token, 'getMyCommands', {});
+      const cmdPrivateResp = tgApi(token, 'getMyCommands', { scope: { type: 'all_private_chats' } });
       const cmdList = cmdResp && cmdResp.ok && Array.isArray(cmdResp.result) ? cmdResp.result : [];
+      const cmdListPrivate = cmdPrivateResp && cmdPrivateResp.ok && Array.isArray(cmdPrivateResp.result) ? cmdPrivateResp.result : [];
       const hasMenu = cmdList.some(function(c) { return String(c.command || '') === 'menu'; });
+      const hasMenuPrivate = cmdListPrivate.some(function(c) { return String(c.command || '') === 'menu'; });
       out.checks.botCommands = {
         ok: !!(cmdResp && cmdResp.ok),
         count: cmdList.length,
+        privateOk: !!(cmdPrivateResp && cmdPrivateResp.ok),
+        privateCount: cmdListPrivate.length,
         hasMenu: hasMenu,
+        hasMenuPrivate: hasMenuPrivate,
         sample: cmdList.slice(0, 10)
       };
       if (!cmdResp || !cmdResp.ok) out.failures.push('Не удалось прочитать команды бота (getMyCommands)');
       if (!hasMenu) out.failures.push('У бота не задана команда /menu');
+      if (!hasMenuPrivate) out.failures.push('В private scope не задана команда /menu');
 
       const info = tgApi(token, 'getWebhookInfo', {});
       const current = normalizeExecUrl(info && info.result ? info.result.url : '');
@@ -1357,18 +1364,89 @@ function __setTelegramBotCommands() {
     { command: 'start', description: 'Запуск и краткая справка' },
     { command: 'menu', description: 'Показать меню команд' },
     { command: 'help', description: 'Помощь по кнопкам заявки' },
-    { command: 'id', description: 'Показать ваш chat_id' }
+    { command: 'id', description: 'Показать ваш chat_id' },
+    { command: 'myid', description: 'Показать user_id и chat_id' }
   ];
 
-  const resp = tgApi(token, 'setMyCommands', { commands: commands });
+  const reset = __resetTelegramCommandsScopes();
+  const scopePayloads = buildCommandScopesPayload(commands);
+  const setResults = [];
+  for (let i = 0; i < scopePayloads.length; i++) {
+    const p = scopePayloads[i];
+    setResults.push({
+      scope: p.scope,
+      result: tgApi(token, 'setMyCommands', p)
+    });
+  }
+
+  const defaultResp = setResults.length ? setResults[0].result : { ok: false, error: 'set results empty' };
   const out = {
-    ok: !!(resp && resp.ok),
-    response: resp,
+    ok: !!(defaultResp && defaultResp.ok),
+    resetScopes: reset,
+    setResults: setResults,
     commands: commands,
     buildVersion: BUILD_VERSION
   };
   Logger.log(JSON.stringify(out));
   return out;
+}
+
+function buildCommandScopesPayload(commands) {
+  return [
+    { commands: commands, scope: { type: 'default' } },
+    { commands: commands, scope: { type: 'all_private_chats' } },
+    { commands: commands, scope: { type: 'all_group_chats' } },
+    { commands: commands, scope: { type: 'all_chat_administrators' } }
+  ];
+}
+
+function __resetTelegramCommandsScopes() {
+  const token = getBotToken();
+  if (!token) return { ok: false, error: 'TELEGRAM_BOT_TOKEN не задан' };
+
+  const results = [];
+  const scopes = [
+    { type: 'default' },
+    { type: 'all_private_chats' },
+    { type: 'all_group_chats' },
+    { type: 'all_chat_administrators' }
+  ];
+
+  for (let i = 0; i < scopes.length; i++) {
+    results.push({
+      scope: scopes[i],
+      result: tgApi(token, 'deleteMyCommands', { scope: scopes[i] })
+    });
+  }
+
+  const chatIds = [
+    normalizeStr(PROP.getProperty(PROP_MANAGER_CHAT_ID)),
+    normalizeStr(PROP.getProperty(PROP_CHAT_NSK)),
+    normalizeStr(PROP.getProperty(PROP_CHAT_FALLBACK))
+  ].filter(Boolean);
+
+  for (let j = 0; j < chatIds.length; j++) {
+    const chatId = chatIds[j];
+    const chatScope = { type: 'chat', chat_id: normalizeChatIdForApi(chatId) };
+    const chatAdminScope = { type: 'chat_administrators', chat_id: normalizeChatIdForApi(chatId) };
+
+    results.push({ scope: chatScope, result: tgApi(token, 'deleteMyCommands', { scope: chatScope }) });
+    results.push({ scope: chatAdminScope, result: tgApi(token, 'deleteMyCommands', { scope: chatAdminScope }) });
+  }
+
+  const ok = results.every(function(r) {
+    return !!(r.result && (r.result.ok || String(r.result.description || '').toLowerCase().indexOf('commands are empty') !== -1));
+  });
+
+  const out = { ok: ok, results: results, buildVersion: BUILD_VERSION };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
+function normalizeChatIdForApi(chatId) {
+  const s = normalizeStr(chatId);
+  if (/^-?\\d+$/.test(s)) return Number(s);
+  return s;
 }
 
 function __cleanupLegacyOrderMetaProps(dryRun) {
