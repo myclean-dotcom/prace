@@ -714,14 +714,24 @@ function handleCancelCallback(cb, token, callbackId, orderId) {
 }
 
 function handleBotTextCommand(msg, token) {
-  const text = normalizeStr(msg.text).toLowerCase();
-  if (!text) return;
+  const rawText = normalizeStr(msg.text);
+  if (!rawText) return;
 
-  if (text === '/start' || text === '/menu' || text === '/help' || text === '/commands') {
+  const normalizedCommand = parseBotCommand(rawText);
+  const text = rawText.toLowerCase();
+  const chatId = String(msg.chat.id);
+
+  if (
+    normalizedCommand === '/start' ||
+    normalizedCommand === '/menu' ||
+    normalizedCommand === '/help' ||
+    normalizedCommand === '/commands'
+  ) {
     const kb = {
       keyboard: [
         ['📋 МЕНЮ КОМАНД'],
-        ['/menu', '/help']
+        ['/menu', '/help'],
+        ['🆔 МОЙ CHAT ID']
       ],
       resize_keyboard: true,
       one_time_keyboard: false
@@ -738,14 +748,28 @@ function handleBotTextCommand(msg, token) {
     out += '4) ОПЛАТА ПОЛУЧЕНА\n';
     out += '5) ОТМЕНИТЬ ЗАЯВКУ';
 
-    tgSendMessage(token, String(msg.chat.id), out, null, kb);
+    tgSendMessage(token, chatId, out, null, kb);
     return;
   }
 
-  if (text === '📋 меню команд') {
-    tgSendMessage(token, String(msg.chat.id), 'Используйте /menu для полного списка команд.');
+  if (normalizedCommand === '/id' || text === '🆔 мой chat id') {
+    tgSendMessage(token, chatId, 'Ваш chat_id: <code>' + escapeTg(chatId) + '</code>');
     return;
   }
+
+  if (text === '📋 меню команд' || text === 'меню') {
+    tgSendMessage(token, chatId, 'Используйте /menu для полного списка команд.');
+    return;
+  }
+}
+
+function parseBotCommand(text) {
+  const s = normalizeStr(text);
+  if (!s || s.charAt(0) !== '/') return '';
+
+  const firstToken = s.split(' ')[0];
+  const cmd = firstToken.split('@')[0].toLowerCase();
+  return cmd;
 }
 
 function handleMasterPhotoMessage(msg, token) {
@@ -1140,6 +1164,7 @@ function __setWebhookProd(webAppExecUrl) {
     url: targetUrl,
     allowed_updates: ['message', 'edited_message', 'callback_query']
   });
+  const commandsResp = __setTelegramBotCommands();
   const infoResp = tgApi(token, 'getWebhookInfo', {});
 
   const out = {
@@ -1148,6 +1173,7 @@ function __setWebhookProd(webAppExecUrl) {
     targetUrl: targetUrl,
     deleteWebhook: delResp,
     setWebhook: setResp,
+    setCommands: commandsResp,
     webhookInfo: infoResp
   };
 
@@ -1193,6 +1219,18 @@ function __checkSelfAll() {
   try {
     const token = getBotToken();
     if (token) {
+      const cmdResp = tgApi(token, 'getMyCommands', {});
+      const cmdList = cmdResp && cmdResp.ok && Array.isArray(cmdResp.result) ? cmdResp.result : [];
+      const hasMenu = cmdList.some(function(c) { return String(c.command || '') === 'menu'; });
+      out.checks.botCommands = {
+        ok: !!(cmdResp && cmdResp.ok),
+        count: cmdList.length,
+        hasMenu: hasMenu,
+        sample: cmdList.slice(0, 10)
+      };
+      if (!cmdResp || !cmdResp.ok) out.failures.push('Не удалось прочитать команды бота (getMyCommands)');
+      if (!hasMenu) out.failures.push('У бота не задана команда /menu');
+
       const info = tgApi(token, 'getWebhookInfo', {});
       const current = normalizeExecUrl(info && info.result ? info.result.url : '');
       const expected = resolveWebhookExecUrl('');
@@ -1305,6 +1343,64 @@ function __fixAndCheck(webAppExecUrl) {
 
 function __checkButtonEndToEnd() {
   return __checkSelfAll();
+}
+
+function __setTelegramBotCommands() {
+  const token = getBotToken();
+  if (!token) {
+    const outNoToken = { ok: false, error: 'TELEGRAM_BOT_TOKEN не задан', buildVersion: BUILD_VERSION };
+    Logger.log(JSON.stringify(outNoToken));
+    return outNoToken;
+  }
+
+  const commands = [
+    { command: 'start', description: 'Запуск и краткая справка' },
+    { command: 'menu', description: 'Показать меню команд' },
+    { command: 'help', description: 'Помощь по кнопкам заявки' },
+    { command: 'id', description: 'Показать ваш chat_id' }
+  ];
+
+  const resp = tgApi(token, 'setMyCommands', { commands: commands });
+  const out = {
+    ok: !!(resp && resp.ok),
+    response: resp,
+    commands: commands,
+    buildVersion: BUILD_VERSION
+  };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
+function __cleanupLegacyOrderMetaProps(dryRun) {
+  const isDryRun = String(dryRun || '').toLowerCase() === '1' || dryRun === true;
+  const props = PROP.getProperties() || {};
+  const keys = Object.keys(props);
+  const target = [];
+
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (k.indexOf('ORDER_DM_META_') === 0) {
+      target.push(k);
+    }
+  }
+
+  if (!isDryRun) {
+    for (let j = 0; j < target.length; j++) {
+      PROP.deleteProperty(target[j]);
+    }
+  }
+
+  const out = {
+    ok: true,
+    dryRun: isDryRun,
+    found: target.length,
+    deleted: isDryRun ? 0 : target.length,
+    sampleKeys: target.slice(0, 20),
+    buildVersion: BUILD_VERSION
+  };
+
+  Logger.log(JSON.stringify(out));
+  return out;
 }
 
 // =========================
@@ -1697,4 +1793,3 @@ function jsonResponse(obj) {
     .createTextOutput(JSON.stringify(obj || {}))
     .setMimeType(ContentService.MimeType.JSON);
 }
-
