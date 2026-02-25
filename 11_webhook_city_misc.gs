@@ -15,6 +15,23 @@ function normalizeWebhookUrlToExec(url) {
   return clean;
 }
 
+function isGoogleLoginUrl(url) {
+  const value = String(url || '').trim().toLowerCase();
+  if (!value) return false;
+  return (
+    value.indexOf('https://accounts.google.com/') === 0 ||
+    value.indexOf('accounts.google.com/servicelogin') !== -1 ||
+    value.indexOf('accounts.google.com/v3/signin') !== -1
+  );
+}
+
+function isUsableWebhookTarget(url) {
+  const value = normalizeWebhookUrlToExec(url);
+  if (!value) return false;
+  if (isGoogleLoginUrl(value)) return false;
+  return /^https:\/\//i.test(value);
+}
+
 function getCurrentServiceExecUrl() {
   try {
     return normalizeWebhookUrlToExec(ScriptApp.getService().getUrl());
@@ -25,13 +42,13 @@ function getCurrentServiceExecUrl() {
 
 function resolveWebhookExecUrl(preferredUrl) {
   const preferred = normalizeWebhookUrlToExec(preferredUrl);
-  if (preferred) return preferred;
+  if (preferred && isUsableWebhookTarget(preferred)) return preferred;
 
   const stored = normalizeWebhookUrlToExec(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY));
-  if (stored) return stored;
+  if (stored && isUsableWebhookTarget(stored)) return stored;
 
   const service = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
-  if (service) return service;
+  if (service && isUsableWebhookTarget(service)) return service;
 
   return '';
 }
@@ -99,19 +116,33 @@ function resolveTelegramWebhookTarget(execUrl) {
 
   // Telegram sends POST updates, so detect redirect target with POST first.
   const postProbe = probeWebhookRedirectTarget(baseExecUrl, 'post');
-  const postTarget = normalizeWebhookUrlToExec(postProbe && postProbe.redirectUrl ? postProbe.redirectUrl : '');
+  const postTargetRaw = normalizeWebhookUrlToExec(postProbe && postProbe.redirectUrl ? postProbe.redirectUrl : '');
+  const postTarget = isUsableWebhookTarget(postTargetRaw) ? postTargetRaw : '';
 
   let getProbe = null;
-  let targetUrl = postTarget;
-  if (!targetUrl) {
+  let getTargetRaw = '';
+  let getTarget = '';
+  if (!postTarget) {
     getProbe = probeWebhookRedirectTarget(baseExecUrl, 'get');
-    targetUrl = normalizeWebhookUrlToExec(getProbe && getProbe.redirectUrl ? getProbe.redirectUrl : '');
+    getTargetRaw = normalizeWebhookUrlToExec(getProbe && getProbe.redirectUrl ? getProbe.redirectUrl : '');
+    getTarget = isUsableWebhookTarget(getTargetRaw) ? getTargetRaw : '';
   }
 
+  const authBlocked =
+    isGoogleLoginUrl(postTargetRaw) ||
+    isGoogleLoginUrl(getTargetRaw) ||
+    (postProbe && (Number(postProbe.statusCode || 0) === 401 || Number(postProbe.statusCode || 0) === 403)) ||
+    (getProbe && (Number(getProbe.statusCode || 0) === 401 || Number(getProbe.statusCode || 0) === 403));
+
+  const targetUrl = postTarget || getTarget || baseExecUrl;
+
   return {
-    targetUrl: targetUrl || baseExecUrl,
+    targetUrl: targetUrl,
     redirectProbe: postProbe,
-    redirectProbeGet: getProbe
+    redirectProbeGet: getProbe,
+    rejectedPostTarget: postTargetRaw && !postTarget ? postTargetRaw : '',
+    rejectedGetTarget: getTargetRaw && !getTarget ? getTargetRaw : '',
+    authBlocked: authBlocked
   };
 }
 
@@ -130,6 +161,19 @@ function ensureWebhookBoundToCurrentExec(force) {
   if (!baseExecUrl) return { ok: false, reason: 'exec_url_not_set' };
   const targetInfo = resolveTelegramWebhookTarget(baseExecUrl);
   const targetUrl = targetInfo && targetInfo.targetUrl ? targetInfo.targetUrl : baseExecUrl;
+  if (!isUsableWebhookTarget(targetUrl)) {
+    return { ok: false, reason: 'invalid_webhook_target', baseExecUrl: baseExecUrl, targetUrl: targetUrl };
+  }
+  if (targetInfo && targetInfo.authBlocked) {
+    return {
+      ok: false,
+      reason: 'webapp_requires_auth',
+      baseExecUrl: baseExecUrl,
+      targetUrl: targetUrl,
+      redirectProbe: targetInfo.redirectProbe || null,
+      redirectProbeGet: targetInfo.redirectProbeGet || null
+    };
+  }
 
   const now = Date.now();
   const lastSync = Number(PROP.getProperty(WEBHOOK_LAST_SYNC_TS_PROPERTY) || '0');

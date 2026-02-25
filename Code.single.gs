@@ -1,9 +1,9 @@
 // ============================================================
 // Apex Clean - Google Apps Script backend (single-file rewrite)
-// Build: 2026-02-25-group-test-v1
+// Build: 2026-02-25-group-test-v2
 // ============================================================
 
-const BUILD_VERSION = '2026-02-25-group-test-v1';
+const BUILD_VERSION = '2026-02-25-group-test-v2';
 const API_SIGNATURE = 'apex-backend-v3';
 
 const PROP = PropertiesService.getScriptProperties();
@@ -1207,18 +1207,24 @@ function checkTelegramBotStatus() {
 
 function __setWebAppExecUrl(webAppExecUrl) {
   let url = normalizeExecUrl(webAppExecUrl);
+  if (url && !isUsableWebhookTarget(url)) url = '';
   if (!url) {
     try {
       url = normalizeExecUrl(ScriptApp.getService().getUrl());
+      if (url && !isUsableWebhookTarget(url)) url = '';
     } catch (e) {}
   }
-  if (!url) url = normalizeExecUrl(PROP.getProperty(PROP_WEBAPP_EXEC_URL));
+  if (!url) {
+    url = normalizeExecUrl(PROP.getProperty(PROP_WEBAPP_EXEC_URL));
+    if (url && !isUsableWebhookTarget(url)) url = '';
+  }
   if (!url) {
     const token = getBotToken();
     if (token) {
       const info = tgApi(token, 'getWebhookInfo', {});
       if (info && info.ok === true && info.result && info.result.url) {
-        url = normalizeExecUrl(info.result.url);
+        const webhookUrl = normalizeExecUrl(info.result.url);
+        if (isUsableWebhookTarget(webhookUrl)) url = webhookUrl;
       }
     }
   }
@@ -1246,6 +1252,12 @@ function __setWebhookProd(webAppExecUrl) {
   const webhookTarget = resolveTelegramWebhookTarget(baseExecUrl);
   const targetUrl = webhookTarget.targetUrl;
   if (!targetUrl) throw new Error('Не удалось определить целевой URL webhook');
+  if (!isUsableWebhookTarget(targetUrl)) {
+    throw new Error('Некорректный URL webhook target. Убедитесь, что используется публичный /exec URL.');
+  }
+  if (webhookTarget && webhookTarget.authBlocked) {
+    throw new Error('Web App требует авторизацию Google (ServiceLogin/401). Переразверните Web App: Execute as me, Who has access: Anyone.');
+  }
 
   const delResp = tgApi(token, 'deleteWebhook', { drop_pending_updates: true });
   const setResp = tgApi(token, 'setWebhook', {
@@ -1262,6 +1274,7 @@ function __setWebhookProd(webAppExecUrl) {
     targetUrl: targetUrl,
     redirectProbe: webhookTarget.redirectProbe || null,
     redirectProbeGet: webhookTarget.redirectProbeGet || null,
+    authBlocked: !!(webhookTarget && webhookTarget.authBlocked),
     deleteWebhook: delResp,
     setWebhook: setResp,
     setCommands: commandsResp,
@@ -1332,20 +1345,28 @@ function __checkSelfAll() {
       const info = tgApi(token, 'getWebhookInfo', {});
       const current = normalizeExecUrl(info && info.result ? info.result.url : '');
       const expected = resolveWebhookExecUrl('');
-      const expectedTarget = resolveTelegramWebhookTarget(expected).targetUrl;
+      const targetInfo = resolveTelegramWebhookTarget(expected);
+      const expectedTarget = targetInfo.targetUrl;
       out.checks.webhook = {
         ok: !!(info && info.ok),
         currentWebhookUrl: current,
         expectedWebhookUrl: expected,
         expectedWebhookTargetUrl: expectedTarget,
+        authBlocked: !!(targetInfo && targetInfo.authBlocked),
         pendingUpdateCount: info && info.result ? Number(info.result.pending_update_count || 0) : 0,
         allowedUpdates: info && info.result ? (info.result.allowed_updates || []) : [],
         lastErrorMessage: info && info.result ? String(info.result.last_error_message || '') : ''
       };
 
       if (!info.ok) out.failures.push('Ошибка getWebhookInfo');
+      if (isGoogleLoginUrl(current)) {
+        out.failures.push('Webhook указывает на страницу логина Google (accounts.google.com)');
+      }
       if (!webhookUrlsEquivalent(current, expectedTarget)) {
         out.failures.push('Webhook URL не совпадает с ожидаемым целевым URL (после редиректа)');
+      }
+      if (targetInfo && targetInfo.authBlocked) {
+        out.failures.push('Web App закрыт авторизацией Google (ServiceLogin/401)');
       }
       const allowed = out.checks.webhook.allowedUpdates || [];
       if (allowed.indexOf('callback_query') === -1) out.failures.push('Webhook не получает callback_query');
@@ -1944,16 +1965,33 @@ function normalizeExecUrl(url) {
   return u;
 }
 
+function isGoogleLoginUrl(url) {
+  const value = String(url || '').trim().toLowerCase();
+  if (!value) return false;
+  return (
+    value.indexOf('https://accounts.google.com/') === 0 ||
+    value.indexOf('accounts.google.com/servicelogin') !== -1 ||
+    value.indexOf('accounts.google.com/v3/signin') !== -1
+  );
+}
+
+function isUsableWebhookTarget(url) {
+  const value = normalizeExecUrl(url);
+  if (!value) return false;
+  if (isGoogleLoginUrl(value)) return false;
+  return /^https:\/\//i.test(value);
+}
+
 function resolveWebhookExecUrl(preferred) {
   const p = normalizeExecUrl(preferred || '');
-  if (p) return p;
+  if (p && isUsableWebhookTarget(p)) return p;
 
   const stored = normalizeExecUrl(PROP.getProperty(PROP_WEBAPP_EXEC_URL));
-  if (stored) return stored;
+  if (stored && isUsableWebhookTarget(stored)) return stored;
 
   try {
     const serviceUrl = normalizeExecUrl(ScriptApp.getService().getUrl());
-    if (serviceUrl) return serviceUrl;
+    if (serviceUrl && isUsableWebhookTarget(serviceUrl)) return serviceUrl;
   } catch (e) {}
 
   return '';
@@ -1965,19 +2003,33 @@ function resolveTelegramWebhookTarget(execUrl) {
 
   // Telegram sends POST callbacks, so detect redirect target with POST first.
   const postProbe = probeRedirectTarget(base, 'post');
-  const postTarget = normalizeExecUrl(postProbe && postProbe.redirectUrl ? postProbe.redirectUrl : '');
+  const postTargetRaw = normalizeExecUrl(postProbe && postProbe.redirectUrl ? postProbe.redirectUrl : '');
+  const postTarget = isUsableWebhookTarget(postTargetRaw) ? postTargetRaw : '';
 
   let getProbe = null;
-  let target = postTarget;
-  if (!target) {
+  let getTargetRaw = '';
+  let getTarget = '';
+  if (!postTarget) {
     getProbe = probeRedirectTarget(base, 'get');
-    target = normalizeExecUrl(getProbe && getProbe.redirectUrl ? getProbe.redirectUrl : '');
+    getTargetRaw = normalizeExecUrl(getProbe && getProbe.redirectUrl ? getProbe.redirectUrl : '');
+    getTarget = isUsableWebhookTarget(getTargetRaw) ? getTargetRaw : '';
   }
+
+  const authBlocked =
+    isGoogleLoginUrl(postTargetRaw) ||
+    isGoogleLoginUrl(getTargetRaw) ||
+    (postProbe && (Number(postProbe.statusCode || 0) === 401 || Number(postProbe.statusCode || 0) === 403)) ||
+    (getProbe && (Number(getProbe.statusCode || 0) === 401 || Number(getProbe.statusCode || 0) === 403));
+
+  const target = postTarget || getTarget || base;
 
   return {
     targetUrl: target || base,
     redirectProbe: postProbe,
-    redirectProbeGet: getProbe
+    redirectProbeGet: getProbe,
+    rejectedPostTarget: postTargetRaw && !postTarget ? postTargetRaw : '',
+    rejectedGetTarget: getTargetRaw && !getTarget ? getTargetRaw : '',
+    authBlocked: authBlocked
   };
 }
 

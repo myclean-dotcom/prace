@@ -1,6 +1,6 @@
 // Code.gs - чистый backend для заявок + Telegram кнопок
 
-const BUILD_VERSION = '2026-02-25-group-test-v1';
+const BUILD_VERSION = '2026-02-25-group-test-v2';
 const BACKEND_API_SIGNATURE = 'apex-backend-v2';
 const DEFAULT_PROD_EXEC_URL = 'https://script.google.com/macros/s/AKfycbxNNiA-5F13rR2X3yr16Uv0ao1UTVRpg4gS86a63AY/exec';
 

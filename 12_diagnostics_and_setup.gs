@@ -176,15 +176,19 @@ function __setEventsChatId(chatId) {
 
 function __setWebAppExecUrl(url) {
   let normalized = normalizeWebhookUrlToExec(url);
+  if (normalized && !isUsableWebhookTarget(normalized)) normalized = '';
   if (!normalized) normalized = normalizeWebhookUrlToExec(getCurrentServiceExecUrl());
+  if (normalized && !isUsableWebhookTarget(normalized)) normalized = '';
   if (!normalized) normalized = normalizeWebhookUrlToExec(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY));
+  if (normalized && !isUsableWebhookTarget(normalized)) normalized = '';
 
   if (!normalized) {
     const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
     if (token) {
       const info = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
       if (info && info.ok === true && info.result && info.result.url) {
-        normalized = normalizeWebhookUrlToExec(info.result.url);
+        const webhookUrl = normalizeWebhookUrlToExec(info.result.url);
+        if (isUsableWebhookTarget(webhookUrl)) normalized = webhookUrl;
       }
     }
   }
@@ -226,6 +230,12 @@ function __setWebhookProd() {
   if (!baseExecUrl) throw new Error('Не удалось определить URL Web App');
   const targetInfo = resolveTelegramWebhookTarget(baseExecUrl);
   const targetUrl = targetInfo && targetInfo.targetUrl ? targetInfo.targetUrl : baseExecUrl;
+  if (!isUsableWebhookTarget(targetUrl)) {
+    throw new Error('Некорректный URL webhook target. Убедитесь, что используется публичный /exec URL.');
+  }
+  if (targetInfo && targetInfo.authBlocked) {
+    throw new Error('Web App требует авторизацию Google (ServiceLogin/401). Переразверните Web App: Выполнять от моего имени, Доступ: Все.');
+  }
 
   const del = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
     method: 'post',
@@ -251,6 +261,7 @@ function __setWebhookProd() {
     targetUrl: targetUrl,
     redirectProbe: targetInfo ? targetInfo.redirectProbe : null,
     redirectProbeGet: targetInfo ? targetInfo.redirectProbeGet : null,
+    authBlocked: !!(targetInfo && targetInfo.authBlocked),
     deleteWebhook: del,
     setWebhook: set,
     webhookInfo: info
@@ -508,7 +519,8 @@ function __checkAllButtonReasons(targetUrl) {
       pushFailure('Не удалось получить getWebhookInfo.', 'Проверьте токен и доступность Telegram API.');
     } else {
       const currentWebhookUrl = normalizeWebhookUrlToExec(webhookInfo.result.url);
-      const expectedWebhookTargetUrl = resolveTelegramWebhookTarget(resolvedExecUrl || '').targetUrl || (resolvedExecUrl || '');
+      const targetInfo = resolveTelegramWebhookTarget(resolvedExecUrl || '');
+      const expectedWebhookTargetUrl = targetInfo.targetUrl || (resolvedExecUrl || '');
       const pending = Number(webhookInfo.result.pending_update_count || 0);
       const allowed = webhookInfo.result.allowed_updates || [];
       const hasCallback = Array.isArray(allowed)
@@ -521,6 +533,7 @@ function __checkAllButtonReasons(targetUrl) {
         currentWebhookUrl: currentWebhookUrl || '',
         expectedWebhookUrl: resolvedExecUrl || '',
         expectedWebhookTargetUrl: expectedWebhookTargetUrl || '',
+        authBlocked: !!(targetInfo && targetInfo.authBlocked),
         pendingUpdateCount: pending,
         allowedUpdates: allowed,
         hasCallbackQuery: hasCallback,
@@ -530,8 +543,14 @@ function __checkAllButtonReasons(targetUrl) {
 
       if (!currentWebhookUrl) {
         pushFailure('Webhook в Telegram не установлен.', 'Запустите __setWebhookProd().');
+      } else if (isGoogleLoginUrl(currentWebhookUrl)) {
+        pushFailure('Webhook указывает на страницу логина Google (accounts.google.com).', 'Web App закрыт авторизацией. Разверните Web App с доступом "Все", затем запустите __setWebhookProd().');
       } else if (expectedWebhookTargetUrl && !webhookUrlsEquivalent(currentWebhookUrl, expectedWebhookTargetUrl)) {
         pushFailure('Webhook указывает не на ожидаемый URL (после редиректа).', 'Запустите __setWebhookProd() в текущем проекте.');
+      }
+
+      if (targetInfo && targetInfo.authBlocked) {
+        pushFailure('Web App закрыт авторизацией Google (ServiceLogin/401).', 'Переразверните Web App: Выполнять от моего имени, Доступ: Все.');
       }
 
       if (!hasCallback) {
