@@ -34,8 +34,8 @@ function generateBriefText(order) {
   const dateTime = escapeTelegramHtml(formatDateTimeForDisplay(order.orderDate, order.orderTime));
   const pay = escapeTelegramHtml(order.masterPay || order.orderTotal || '0');
   const streetOnly = escapeTelegramHtml(extractStreetOnly(order.customerAddress) || 'не указана');
-  const equipment = escapeTelegramHtml(String(order.equipment || '—').trim() || '—');
-  const chemistry = escapeTelegramHtml(String(order.chemistry || '—').trim() || '—');
+  const equipment = escapeTelegramHtml(String(order.equipment || '').trim() || 'Не указано');
+  const chemistry = escapeTelegramHtml(String(order.chemistry || '').trim() || 'Не указано');
 
   let text = `🧹 <b>ЗАЯВКА №${escapeTelegramHtml(order.orderId || '')}</b>\n`;
   text += '───────────────────\n';
@@ -295,4 +295,3 @@ function sendReminders() {
     }
   }
 }
-

@@ -1328,7 +1328,7 @@
     </div>
 
     <script>
-        const FRONTEND_VERSION = '2026-02-24-web-v5';
+        const FRONTEND_VERSION = '2026-02-24-web-v6';
 
         const CONFIG = {
             TELEGRAM_BOT_TOKEN: '',
@@ -1497,10 +1497,12 @@
             };
 
             pushUnique(getBackendParamUrl());
-            try { pushUnique(localStorage.getItem('apex_backend_url')); } catch (error) {}
             pushUnique(ACTIVE_BACKEND_URL);
             pushUnique(CONFIG.GOOGLE_SCRIPT_URL);
             (CONFIG.GOOGLE_SCRIPT_URLS || []).forEach(pushUnique);
+            // Старый URL из localStorage добавляем только последним,
+            // чтобы приоритет был у актуального URL из кода/параметра.
+            try { pushUnique(localStorage.getItem('apex_backend_url')); } catch (error) {}
 
             return out;
         }
@@ -1581,6 +1583,9 @@
                 return { success: false, error: 'Не задан URL backend (GOOGLE_SCRIPT_URL).' };
             }
 
+            const action = payload && typeof payload.get === 'function'
+                ? String(payload.get('action') || '').trim().toLowerCase()
+                : '';
             let lastError = null;
 
             for (let i = 0; i < urls.length; i++) {
@@ -1621,6 +1626,12 @@
                             continue;
                         }
 
+                        continue;
+                    }
+
+                    // Для ключевых действий используем только backend, который
+                    // возвращает buildVersion (чтобы отсечь старые деплои).
+                    if ((action === 'create' || action === 'check_bot') && !json.buildVersion) {
                         continue;
                     }
 
@@ -1692,14 +1703,9 @@
             if (currentOrderData.worksDescription) {
                 text += `\n📝 Дополнительное описание: ${currentOrderData.worksDescription}\n`;
             }
-            
-            if (currentOrderData.equipment && currentOrderData.equipment !== '—') {
-                text += `\n🛠 Оборудование: ${currentOrderData.equipment}\n`;
-            }
-            
-            if (currentOrderData.chemistry && currentOrderData.chemistry !== '—') {
-                text += `🧴 Химия: ${currentOrderData.chemistry}\n`;
-            }
+
+            text += `\n🛠 Оборудование: ${currentOrderData.equipment || 'Не указано'}\n`;
+            text += `🧴 Химия: ${currentOrderData.chemistry || 'Не указано'}\n`;
             
             return text;
         }
@@ -2112,8 +2118,8 @@
                 orderTotal: orderTotal.value || '0',
                 masterPay: masterPay.value || '0',
                 worksDescription: worksDescription.value || '',
-                equipment: equipment.join(', ') || '—',
-                chemistry: chemistry.join(', ') || '—',
+                equipment: equipment.join(', ') || 'Не указано',
+                chemistry: chemistry.join(', ') || 'Не указано',
                 createdAt: formatCreatedAtLocal(new Date()),
                 telegramMessageId: telegramMessageId || ''
             };

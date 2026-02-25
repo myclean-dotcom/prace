@@ -26,8 +26,8 @@ function createOrUpdateOrder(payload, action) {
     masterPay: pickPayloadValue(payload, ['masterPay', 'Зарплата мастерам'], '0'),
     cleaningType: pickPayloadValue(payload, ['cleaningType', 'Тип уборки'], ''),
     area: pickPayloadValue(payload, ['area', 'Площадь (м²)'], ''),
-    chemistry: pickPayloadValue(payload, ['chemistry', 'Химия', 'chemistry[]'], '—'),
-    equipment: pickPayloadValue(payload, ['equipment', 'Оборудование', 'equipment[]'], '—'),
+    chemistry: pickPayloadValue(payload, ['chemistry', 'Химия', 'chemistry[]'], 'Не указано'),
+    equipment: pickPayloadValue(payload, ['equipment', 'Оборудование', 'equipment[]'], 'Не указано'),
     worksDescription: pickPayloadValue(payload, ['worksDescription', 'Описание работ'], '')
   };
 
@@ -94,8 +94,8 @@ function buildOrderRowData(order, status) {
     'Зарплата мастерам': String(order.masterPay || '').trim(),
     'Тип уборки': String(order.cleaningType || '').trim(),
     'Площадь (м²)': String(order.area || '').trim(),
-    'Химия': String(order.chemistry || '—').trim(),
-    'Оборудование': String(order.equipment || '—').trim(),
+    'Химия': String(order.chemistry || 'Не указано').trim(),
+    'Оборудование': String(order.equipment || 'Не указано').trim(),
     'Описание работ': String(order.worksDescription || '').trim(),
     'Статус': String(status || '').trim(),
     'Telegram Chat ID': '',
@@ -144,4 +144,3 @@ function setTelegramIdsForOrder(orderId, chatId, messageId) {
   setCellByHeader(sheet, rowNum, map, 'Telegram Chat ID', String(chatId || '').trim());
   setCellByHeader(sheet, rowNum, map, 'Telegram Message ID', String(messageId || '').trim());
 }
-
