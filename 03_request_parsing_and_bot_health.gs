@@ -151,9 +151,16 @@ function pickPayloadValue(payload, keys, fallback) {
 /* ---------- Bot health ---------- */
 
 function checkTelegramBotStatus() {
+  const runtimeMode = getTelegramRuntimeMode();
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
   if (!token) {
-    return jsonResponse({ ok: false, error: 'TELEGRAM_BOT_TOKEN не задан', buildVersion: BUILD_VERSION });
+    return jsonResponse({
+      ok: false,
+      error: 'TELEGRAM_BOT_TOKEN не задан',
+      buildVersion: BUILD_VERSION,
+      apiSignature: BACKEND_API_SIGNATURE,
+      runtimeMode: runtimeMode
+    });
   }
 
   const resp = urlFetchJson(`https://api.telegram.org/bot${token}/getMe`, { method: 'get' });
@@ -162,14 +169,21 @@ function checkTelegramBotStatus() {
       ok: false,
       error: (resp && (resp.description || resp.error || resp.note)) || 'Ошибка проверки бота',
       telegram: resp || null,
-      buildVersion: BUILD_VERSION
+      buildVersion: BUILD_VERSION,
+      apiSignature: BACKEND_API_SIGNATURE,
+      runtimeMode: runtimeMode
     });
   }
 
   return jsonResponse({
     ok: true,
     bot: { id: resp.result.id, username: resp.result.username || '', first_name: resp.result.first_name || '' },
-    buildVersion: BUILD_VERSION
+    buildVersion: BUILD_VERSION,
+    apiSignature: BACKEND_API_SIGNATURE,
+    runtimeMode: runtimeMode,
+    capabilities: {
+      briefEquipmentInGroup: true,
+      managerBotCommands: runtimeMode !== 'direct'
+    }
   });
 }
-

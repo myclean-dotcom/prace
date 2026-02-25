@@ -56,15 +56,45 @@ function mapManagerPanelTextToCommand(text) {
   if (t === '/planned') return '/planned';
   if (t === '/pay') return '/pay';
   if (t === '/panel') return '/panel';
+  if (t === '/menu') return '/menu';
+  if (t === '/commands') return '/commands';
   if (t === '/help') return '/help';
   if (t === '/hidepanel') return '/hidepanel';
   if (t === '📋 активные заявки' || t === 'активные заявки') return '/active';
   if (t === '📅 запланированные' || t === 'запланированные') return '/planned';
   if (t === '💳 отправить оплату' || t === 'отправить оплату') return '/pay';
   if (t === '🧭 панель' || t === 'панель') return '/panel';
+  if (t === '📚 команды' || t === 'команды') return '/menu';
   if (t === '❓ помощь' || t === 'помощь') return '/help';
   if (t === '⌨️ скрыть панель' || t === 'скрыть панель') return '/hidepanel';
   return '';
+}
+
+function buildButtonsScenarioHelpText(role) {
+  const kind = String(role || '').trim().toLowerCase();
+  const lines = [];
+  lines.push('📚 Сценарии кнопок');
+  lines.push('');
+  lines.push('1) В группе: кнопка «✅ ВЫХОЖУ НА ЗАЯВКУ»');
+  lines.push('Статус в таблице: «Взята», заполняются Master ID, Master Name, Дата принятия.');
+  lines.push('');
+  lines.push('2) У мастера: кнопка «📍 ПРИЕХАЛ НА ОБЪЕКТ»');
+  lines.push('Статус в таблице: «На объекте», заполняется Дата прибытия, менеджеру уходит уведомление.');
+  lines.push('');
+  lines.push('3) У мастера: кнопка «✅ ЗАВЕРШИЛ ЗАЯВКУ»');
+  lines.push('Статус в таблице: «Ожидает оплаты», заполняется Дата завершения.');
+  lines.push('');
+  lines.push('4) У мастера: кнопка «💳 ОПЛАТА ПОЛУЧЕНА»');
+  lines.push('Статус в таблице: «Завершена», заполняется Дата оплаты.');
+  lines.push('');
+  lines.push('5) У мастера: кнопка «❌ ОТМЕНИТЬ ЗАЯВКУ»');
+  lines.push('Статус в таблице: «Опубликована», мастер очищается, заявка возвращается в группу с кнопкой.');
+  if (kind === 'manager') {
+    lines.push('');
+    lines.push('6) У менеджера: кнопка «💳 Отправить оплату мастеру»');
+    lines.push('Бот попросит следующим сообщением отправить ссылку/QR и перешлет мастеру.');
+  }
+  return lines.join('\n');
 }
 
 function processManagerCommand(text, token, replyChatId, userId, managerMode) {
@@ -168,6 +198,11 @@ function processManagerCommand(text, token, replyChatId, userId, managerMode) {
     ].join('\n');
 
     sendManagerCommandReply(token, replyChatId, help, 'HTML', buildManagerPanelKeyboard());
+    return { handled: true, ok: true, command: command };
+  }
+
+  if (command === '/menu' || command === '/commands') {
+    sendManagerCommandReply(token, replyChatId, buildButtonsScenarioHelpText('manager'), null, buildManagerPanelKeyboard());
     return { handled: true, ok: true, command: command };
   }
 
@@ -355,7 +390,8 @@ function buildManagerPanelKeyboard() {
       ['/pay', '/panel'],
       ['/setevents', '/setgroup'],
       ['/setnsk', '/myid'],
-      ['/help', '/hidepanel']
+      ['/menu', '/help'],
+      ['/hidepanel']
     ],
     resize_keyboard: true,
     one_time_keyboard: false
@@ -384,6 +420,8 @@ function mapMasterPanelTextToCommand(text) {
   if (t === '/paid') return '/paid';
   if (t === '/cancel') return '/cancel';
   if (t === '/panel') return '/panel';
+  if (t === '/menu') return '/menu';
+  if (t === '/commands') return '/commands';
   if (t === '/help') return '/help';
   if (t === '/hidepanel') return '/hidepanel';
   if (t === '🧾 моя заявка' || t === 'моя заявка') return '/myorder';
@@ -392,6 +430,7 @@ function mapMasterPanelTextToCommand(text) {
   if (t === '💳 оплата получена' || t === 'оплата получена') return '/paid';
   if (t === '❌ отменить заявку' || t === 'отменить заявку') return '/cancel';
   if (t === '🧭 панель' || t === 'панель') return '/panel';
+  if (t === '📚 команды' || t === 'команды') return '/menu';
   if (t === '❓ помощь' || t === 'помощь') return '/help';
   if (t === '⌨️ скрыть панель' || t === 'скрыть панель') return '/hidepanel';
   return '';
@@ -406,7 +445,7 @@ function processMasterCommand(text, token, userId, chatId) {
   const command = normalizeBotCommandToken(parts[0]);
   if (!command) return { handled: false };
 
-  const allowed = ['/myorder', '/arrived', '/done', '/paid', '/cancel', '/help', '/start', '/panel', '/hidepanel'];
+  const allowed = ['/myorder', '/arrived', '/done', '/paid', '/cancel', '/help', '/start', '/panel', '/hidepanel', '/menu', '/commands'];
   if (allowed.indexOf(command) === -1) return { handled: false };
 
   if (command === '/hidepanel') {
@@ -426,6 +465,11 @@ function processMasterCommand(text, token, userId, chatId) {
       'Можно пользоваться кнопками панели ниже.'
     ].join('\n');
     sendBotTextMessage(token, chatId, help, false, buildMasterPanelKeyboard());
+    return { handled: true, ok: true, command: command };
+  }
+
+  if (command === '/menu' || command === '/commands') {
+    sendBotTextMessage(token, chatId, buildButtonsScenarioHelpText('master'), false, buildMasterPanelKeyboard());
     return { handled: true, ok: true, command: command };
   }
 

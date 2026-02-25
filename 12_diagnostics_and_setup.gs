@@ -3,6 +3,7 @@
 function __checkConfiguration() {
   const out = {
     buildVersion: BUILD_VERSION,
+    telegramRuntimeMode: getTelegramRuntimeMode(),
     spreadsheetId: String(PROP.getProperty('SPREADSHEET_ID') || '').trim() || 'NOT_SET',
     botTokenSet: !!String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim(),
     telegramChatId: String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim() || 'NOT_SET',
@@ -17,11 +18,130 @@ function __checkConfiguration() {
   return out;
 }
 
+function __setTelegramRuntimeMode(mode) {
+  const normalized = String(mode || '').trim().toLowerCase();
+  if (normalized !== 'direct' && normalized !== 'apps_script') {
+    throw new Error('Передайте mode: direct или apps_script');
+  }
+  PROP.setProperty(TELEGRAM_RUNTIME_MODE_PROPERTY, normalized);
+  const out = {
+    ok: true,
+    telegramRuntimeMode: normalized,
+    buildVersion: BUILD_VERSION
+  };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
+function __switchToDirectTelegramMode() {
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  PROP.setProperty(TELEGRAM_RUNTIME_MODE_PROPERTY, 'direct');
+  let deleteWebhook = { ok: false, skipped: true, reason: 'token not set' };
+  if (token) {
+    deleteWebhook = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
+      method: 'post',
+      payload: JSON.stringify({ drop_pending_updates: true })
+    });
+  }
+  const out = {
+    ok: true,
+    telegramRuntimeMode: 'direct',
+    deleteWebhook: deleteWebhook,
+    note: 'Apps Script больше не обрабатывает Telegram callbacks/commands',
+    buildVersion: BUILD_VERSION
+  };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
+function __switchToAppsScriptTelegramMode() {
+  PROP.setProperty(TELEGRAM_RUNTIME_MODE_PROPERTY, 'apps_script');
+  const out = {
+    ok: true,
+    telegramRuntimeMode: 'apps_script',
+    note: 'Для активации webhook запустите __setWebhookProd()',
+    buildVersion: BUILD_VERSION
+  };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
+function __enableTelegramBotWithSheets(webAppExecUrl) {
+  const mode = __switchToAppsScriptTelegramMode();
+  let setUrl = null;
+  const incomingUrl = String(webAppExecUrl || '').trim();
+  if (incomingUrl) {
+    setUrl = __setWebAppExecUrl(incomingUrl);
+  }
+  const webhook = __setWebhookProd();
+  const commands = __setTelegramBotCommands();
+  const scenarios = __checkButtonScenariosAndSheet();
+  const out = {
+    ok: true,
+    buildVersion: BUILD_VERSION,
+    mode: mode,
+    setUrl: setUrl,
+    webhook: webhook,
+    commands: commands,
+    scenarios: scenarios
+  };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
 function __checkSheetHeaders() {
   const sheet = getSheet();
   const map = getHeaderMap(sheet);
   const missing = REQUIRED_HEADERS.filter(function(h) { return !map[h]; });
   const out = { ok: missing.length === 0, missing: missing, sheetName: sheet.getName(), buildVersion: BUILD_VERSION };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
+function __checkButtonScenariosAndSheet() {
+  const cfg = __checkConfiguration();
+  const headers = __checkSheetHeaders();
+  const mode = getTelegramRuntimeMode();
+
+  const scenarios = [
+    {
+      step: 'Группа: ВЫХОЖУ НА ЗАЯВКУ',
+      expectedStatus: 'Взята',
+      expectedColumns: ['Master ID', 'Master Name', 'Дата принятия']
+    },
+    {
+      step: 'Мастер: ПРИЕХАЛ НА ОБЪЕКТ',
+      expectedStatus: 'На объекте',
+      expectedColumns: ['Дата прибытия']
+    },
+    {
+      step: 'Мастер: ЗАВЕРШИЛ ЗАЯВКУ',
+      expectedStatus: 'Ожидает оплаты',
+      expectedColumns: ['Дата завершения']
+    },
+    {
+      step: 'Мастер: ОПЛАТА ПОЛУЧЕНА',
+      expectedStatus: 'Завершена',
+      expectedColumns: ['Дата оплаты']
+    },
+    {
+      step: 'Мастер: ОТМЕНИТЬ ЗАЯВКУ',
+      expectedStatus: 'Опубликована',
+      expectedColumns: ['Master ID', 'Master Name', 'Дата принятия']
+    }
+  ];
+
+  const out = {
+    ok: headers.ok,
+    buildVersion: BUILD_VERSION,
+    telegramRuntimeMode: mode,
+    configuration: cfg,
+    headers: headers,
+    scenarios: scenarios,
+    note: mode === 'direct'
+      ? 'Apps Script Telegram callbacks отключены (direct mode).'
+      : 'Сценарии активны в Apps Script режиме.'
+  };
   Logger.log(JSON.stringify(out));
   return out;
 }
@@ -84,6 +204,23 @@ function __setWebhookProd() {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
 
+  if (isDirectTelegramRuntime()) {
+    const delDirect = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
+      method: 'post',
+      payload: JSON.stringify({ drop_pending_updates: true })
+    });
+    const outDirect = {
+      ok: true,
+      skipped: true,
+      reason: 'direct_telegram_runtime_enabled',
+      deleteWebhook: delDirect,
+      note: 'Webhook для Apps Script отключен, обработка в direct_telegram_bot.js',
+      buildVersion: BUILD_VERSION
+    };
+    Logger.log(JSON.stringify(outDirect));
+    return outDirect;
+  }
+
   const url = resolveWebhookExecUrl('');
   if (!url) throw new Error('Не удалось определить URL Web App');
 
@@ -120,6 +257,18 @@ function __setTelegramBotCommands() {
   const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
 
+  if (isDirectTelegramRuntime()) {
+    const outSkip = {
+      ok: true,
+      skipped: true,
+      reason: 'direct_telegram_runtime_enabled',
+      note: 'Команды выставляет direct_telegram_bot.js',
+      buildVersion: BUILD_VERSION
+    };
+    Logger.log(JSON.stringify(outSkip));
+    return outSkip;
+  }
+
   const privateCommands = [
     { command: 'myid', description: 'Показать user_id и chat_id' },
     { command: 'setmanager', description: 'Назначить этот чат менеджерским' },
@@ -131,6 +280,7 @@ function __setTelegramBotCommands() {
     { command: 'done', description: 'Работы завершены' },
     { command: 'paid', description: 'Оплата от клиента получена' },
     { command: 'cancel', description: 'Отменить текущую заявку' },
+    { command: 'menu', description: 'Сценарии кнопок и команды' },
     { command: 'panel', description: 'Показать панель кнопок' },
     { command: 'hidepanel', description: 'Скрыть панель кнопок' },
     { command: 'active', description: 'Заявки в работе (менеджер)' },
@@ -145,6 +295,7 @@ function __setTelegramBotCommands() {
     { command: 'setevents', description: 'Назначить этот чат чатом событий' },
     { command: 'setgroup', description: 'Назначить этот чат группой заявок' },
     { command: 'setnsk', description: 'Назначить этот чат Новосибирском' },
+    { command: 'menu', description: 'Сценарии кнопок и команды' },
     { command: 'panel', description: 'Показать панель кнопок' },
     { command: 'hidepanel', description: 'Скрыть панель кнопок' },
     { command: 'active', description: 'Заявки в работе сейчас' },
@@ -189,6 +340,9 @@ function __setTelegramBotCommands() {
 }
 
 function __hardResetBotRouting() {
+  if (isDirectTelegramRuntime()) {
+    return __switchToDirectTelegramMode();
+  }
   return __setWebhookProd();
 }
 
@@ -292,6 +446,7 @@ function __checkAllButtonReasons(targetUrl) {
   const resolvedExecUrl = normalizeWebhookUrlToExec(resolveWebhookExecUrl(targetUrl || ''));
 
   out.checks.properties = {
+    runtimeMode: getTelegramRuntimeMode(),
     tokenSet: !!token,
     spreadsheetIdSet: !!spreadsheetId,
     telegramChatNovosibirskSet: !!chatNovosibirsk,
@@ -304,6 +459,14 @@ function __checkAllButtonReasons(targetUrl) {
     storedExecUrl: storedExecUrl || '',
     resolvedExecUrl: resolvedExecUrl || ''
   };
+
+  if (isDirectTelegramRuntime()) {
+    out.ok = true;
+    out.warnings.push('Apps Script Telegram routing отключен (direct mode).');
+    out.advice.push('Кнопки/команды обрабатывает внешний direct_telegram_bot.js.');
+    Logger.log(JSON.stringify(out));
+    return out;
+  }
 
   if (!token) {
     pushFailure('TELEGRAM_BOT_TOKEN не задан.', 'Добавьте TELEGRAM_BOT_TOKEN в Script Properties.');

@@ -1,12 +1,14 @@
 // Code.gs - чистый backend для заявок + Telegram кнопок
 
-const BUILD_VERSION = '2026-02-24-bot-module-v1';
+const BUILD_VERSION = '2026-02-24-bot-module-v2';
+const BACKEND_API_SIGNATURE = 'apex-backend-v2';
 const DEFAULT_PROD_EXEC_URL = 'https://script.google.com/macros/s/AKfycbxNNiA-5F13rR2X3yr16Uv0ao1UTVRpg4gS86a63AY/exec';
 
 const PROP = PropertiesService.getScriptProperties();
 const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
 const WEBHOOK_LAST_SYNC_TS_PROPERTY = 'WEBHOOK_LAST_SYNC_TS';
+const TELEGRAM_RUNTIME_MODE_PROPERTY = 'TELEGRAM_RUNTIME_MODE';
 
 const CALLBACK_CACHE_TTL_SECONDS = 600;
 const ORDER_DM_SENT_PREFIX = 'ORDER_DM_SENT_';
@@ -22,6 +24,16 @@ const CALLBACK_ACTIONS = {
   CANCEL: 'cancel',
   MANAGER_PAY: 'managerpay'
 };
+
+function getTelegramRuntimeMode() {
+  const raw = String(PROP.getProperty(TELEGRAM_RUNTIME_MODE_PROPERTY) || '').trim().toLowerCase();
+  if (raw === 'direct') return 'direct';
+  return 'apps_script';
+}
+
+function isDirectTelegramRuntime() {
+  return getTelegramRuntimeMode() === 'direct';
+}
 
 const REQUIRED_HEADERS = [
   'Номер заявки',

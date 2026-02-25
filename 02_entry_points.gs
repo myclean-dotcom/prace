@@ -8,6 +8,7 @@ function doGet(e) {
         ok: true,
         info: 'webapp active',
         buildVersion: BUILD_VERSION,
+        apiSignature: BACKEND_API_SIGNATURE,
         execUrl: resolveWebhookExecUrl('')
       });
     }
@@ -24,7 +25,7 @@ function doGet(e) {
 
     return html.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   } catch (err) {
-    return jsonResponse({ ok: false, error: err.message, buildVersion: BUILD_VERSION });
+    return jsonResponse({ ok: false, error: err.message, buildVersion: BUILD_VERSION, apiSignature: BACKEND_API_SIGNATURE });
   }
 }
 
@@ -34,13 +35,22 @@ function doPost(e) {
     try { Logger.log('doPost body: ' + JSON.stringify(body)); } catch (logErr) {}
 
     if (body.callback_query || body.message || body.edited_message) {
+      if (isDirectTelegramRuntime()) {
+        return jsonResponse({
+          ok: true,
+          ignored: true,
+          reason: 'direct_telegram_runtime_enabled',
+          buildVersion: BUILD_VERSION,
+          apiSignature: BACKEND_API_SIGNATURE
+        });
+      }
       return handleTelegramUpdate(body);
     }
 
     const action = String(body.action || '').trim().toLowerCase();
 
     if (action === 'probe_version') {
-      return jsonResponse({ ok: true, action: 'probe_version', buildVersion: BUILD_VERSION });
+      return jsonResponse({ ok: true, action: 'probe_version', buildVersion: BUILD_VERSION, apiSignature: BACKEND_API_SIGNATURE });
     }
 
     if (action === 'check_bot') {
@@ -55,11 +65,11 @@ function doPost(e) {
       ok: false,
       error: 'unknown action',
       buildVersion: BUILD_VERSION,
+      apiSignature: BACKEND_API_SIGNATURE,
       keys: Object.keys(body || {})
     });
   } catch (err) {
     Logger.log('doPost error: ' + err.message + '\n' + (err.stack || ''));
-    return jsonResponse({ ok: false, error: err.message, buildVersion: BUILD_VERSION });
+    return jsonResponse({ ok: false, error: err.message, buildVersion: BUILD_VERSION, apiSignature: BACKEND_API_SIGNATURE });
   }
 }
-
