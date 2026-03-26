@@ -1189,7 +1189,7 @@
                             </select>
                         </div>
                     </div>
-                    <div class="field-note">Telegram-чат выбирается автоматически по городу.</div>
+                    <div class="field-note">Чат мессенджера выбирается автоматически по городу.</div>
                 </div>
 
                 <div class="form-group">
@@ -1311,8 +1311,8 @@
                     <button class="action-btn copy" onclick="copyToClipboard()">
                         <i class="far fa-copy"></i> Копировать
                     </button>
-                    <a href="https://web.telegram.org/" class="action-btn telegram" id="telegramLinkBtn" target="_blank" rel="noopener noreferrer">
-                        <i class="fab fa-telegram"></i> Открыть в Telegram
+                    <a href="https://vk.com/im" class="action-btn telegram" id="telegramLinkBtn" target="_blank" rel="noopener noreferrer">
+                        <i class="fab fa-vk"></i> Открыть во VK
                     </a>
                     <button class="action-btn new" onclick="newOrder()">
                         <i class="fas fa-plus"></i> Новая заявка
@@ -1331,12 +1331,17 @@
         const FRONTEND_VERSION = '2026-02-24-web-v6';
 
         const CONFIG = {
+            MESSENGER_PROVIDER: 'vk',
             TELEGRAM_BOT_TOKEN: '',
             TELEGRAM_CHAT_ID: '',
+            MESSENGER_CHAT_ID: '',
             GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxNNiA-5F13rR2X3yr16Uv0ao1UTVRpg4gS86a63AY/exec',
             GOOGLE_SCRIPT_URLS: [
                 'https://script.google.com/macros/s/AKfycbxNNiA-5F13rR2X3yr16Uv0ao1UTVRpg4gS86a63AY/exec'
             ],
+            CITY_MESSENGER_CHATS: {
+                'Новосибирск': ''
+            },
             CITY_TELEGRAM_CHATS: {
                 'Новосибирск': '-1003875039787'
             },
@@ -1453,6 +1458,7 @@
             orderTime.value = formatTimeInputLocal(twoHoursLater);
 
             updateFooterMeta();
+            updateMessengerButtonUi();
             
             checkTelegramBot();
             setupEventListeners();
@@ -1577,6 +1583,28 @@
             masterPay.addEventListener('input', calculateMasterPay);
         }
 
+        function getMessengerProvider() {
+            const provider = String(CONFIG.MESSENGER_PROVIDER || 'telegram').trim().toLowerCase();
+            return provider === 'vk' ? 'vk' : 'telegram';
+        }
+
+        function getMessengerTitle() {
+            return getMessengerProvider() === 'vk' ? 'VK' : 'Telegram';
+        }
+
+        function updateMessengerButtonUi() {
+            if (!telegramLinkBtn) return;
+            if (getMessengerProvider() === 'vk') {
+                telegramLinkBtn.innerHTML = '<i class="fab fa-vk"></i> Открыть во VK';
+                telegramLinkBtn.href = 'https://vk.com/im';
+                telegramLinkBtn.title = 'Открыть VK';
+                return;
+            }
+            telegramLinkBtn.innerHTML = '<i class="fab fa-telegram"></i> Открыть в Telegram';
+            telegramLinkBtn.href = 'https://web.telegram.org/';
+            telegramLinkBtn.title = 'Открыть Telegram Web';
+        }
+
         async function postToBackend(payload) {
             const urls = getBackendCandidates();
             if (!urls.length) {
@@ -1660,22 +1688,26 @@
             const result = await postToBackend(payload);
             if (result.success) {
                 const data = result.response || {};
+                if (data.messengerProvider) {
+                    CONFIG.MESSENGER_PROVIDER = String(data.messengerProvider).trim().toLowerCase();
+                    updateMessengerButtonUi();
+                }
                 const name = data.bot && data.bot.username ? ` @${data.bot.username}` : '';
                 const backendTag = result.backendUrl ? ` (backend: ${result.backendUrl})` : '';
-                showStatus(`✅ Telegram бот подключен${name}. Чат выбирается автоматически по городу.${backendTag}`, 'success');
+                showStatus(`✅ ${getMessengerTitle()} бот подключен${name}. Чат выбирается автоматически по городу.${backendTag}`, 'success');
                 return;
             }
 
             const backendError = (result.response && (result.response.error || result.response.note))
                 || result.error
                 || 'Проверьте Script Properties и деплой Web App.';
-            showStatus(`❌ Ошибка Telegram бота: ${backendError}`, 'error');
+            showStatus(`❌ Ошибка ${getMessengerTitle()} бота: ${backendError}`, 'error');
         }
 
         async function sendToTelegramGroup(orderText) {
             // Функция отправляет заявку на сервер Google Apps Script
-            // Сервер сам отправит сообщение в Telegram
-            // ВАЖНО: Функция не должна отправлять напрямую в Telegram из браузера!
+            // Сервер сам отправит сообщение в мессенджер
+            // ВАЖНО: Функция не должна отправлять напрямую из браузера!
             return {
                 success: true,
                 messageId: null,
@@ -1798,7 +1830,8 @@
 
         function getTelegramChatForCity(city) {
             const cityName = String(city || '').trim();
-            return normalizeTelegramChannel(CONFIG.CITY_TELEGRAM_CHATS[cityName] || '');
+            const cityMap = CONFIG.CITY_MESSENGER_CHATS || CONFIG.CITY_TELEGRAM_CHATS || {};
+            return normalizeTelegramChannel(cityMap[cityName] || '');
         }
 
         function normalizeCustomerName(value) {
@@ -1815,7 +1848,18 @@
             const chat = String(chatId || '').trim();
             const msgId = String(messageId || '').trim();
 
-            if (!chat || !msgId) return null;
+            if (!chat) return null;
+
+            if (getMessengerProvider() === 'vk') {
+                if (!/^-?\d+$/.test(chat)) return 'https://vk.com/im';
+                const peerId = Number(chat);
+                if (peerId >= 2000000000) {
+                    return `https://vk.com/im?sel=c${peerId - 2000000000}`;
+                }
+                return `https://vk.com/im?sel=${peerId}`;
+            }
+
+            if (!msgId) return null;
 
             if (chat.startsWith('@')) {
                 return `https://t.me/${chat.slice(1)}/${msgId}`;
@@ -1831,13 +1875,20 @@
         function updateTelegramLinkButton(serverResponse) {
             const resp = serverResponse || {};
             const cityChat = currentOrderData ? currentOrderData.telegramChannel : getTelegramChatForCity(customerCity.value);
-            const chat = String(resp.chat || cityChat || CONFIG.TELEGRAM_CHAT_ID || '').trim();
+            const chat = String(resp.chat || cityChat || CONFIG.MESSENGER_CHAT_ID || CONFIG.TELEGRAM_CHAT_ID || '').trim();
             const messageId = resp.messageId || (resp.result && resp.result.message_id) || '';
             const messageLink = buildTelegramMessageLink(chat, messageId);
+            const isVk = getMessengerProvider() === 'vk';
 
             if (messageLink) {
                 telegramLinkBtn.href = messageLink;
-                telegramLinkBtn.title = 'Открыть сообщение в Telegram';
+                telegramLinkBtn.title = isVk ? 'Открыть диалог во VK' : 'Открыть сообщение в Telegram';
+                return;
+            }
+
+            if (isVk) {
+                telegramLinkBtn.href = 'https://vk.com/im';
+                telegramLinkBtn.title = 'Открыть VK';
                 return;
             }
 
@@ -2046,12 +2097,6 @@
                 return;
             }
 
-            if (!cityTelegramChat) {
-                showStatus(`❌ Для города "${city}" не настроен Telegram-чат`, 'error');
-                customerCity.focus();
-                return;
-            }
-
             customerName.value = clientFirstName;
             
             const orderId = 'CLN-' + Date.now().toString().slice(-8);
@@ -2135,7 +2180,7 @@
             
             try {
                 // Отправляем заявку на Google Apps Script
-                // Сервер автоматически отправит сообщение в Telegram и сохранит в таблицу
+                // Сервер автоматически отправит сообщение в мессенджер и сохранит в таблицу
                 const sheetsResult = await saveToGoogleSheets();
                 if (!sheetsResult.success) {
                     const backendError = (sheetsResult.response && (sheetsResult.response.error || sheetsResult.response.note))
@@ -2152,7 +2197,7 @@
                 updateTelegramLinkButton(serverResponse);
                 telegramMessageId = serverResponse.messageId || telegramMessageId;
                 const backendVersion = serverResponse.buildVersion ? ` (backend: ${serverResponse.buildVersion})` : '';
-                showStatus(`✅ Заявка №${orderId} создана! Отправлена в Telegram и Google Таблицы${backendVersion}`, 'success');
+                showStatus(`✅ Заявка №${orderId} создана! Отправлена в ${getMessengerTitle()} и Google Таблицы${backendVersion}`, 'success');
                 
                 step3.classList.add('active');
                 step2.classList.remove('active');

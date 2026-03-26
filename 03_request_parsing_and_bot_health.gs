@@ -152,14 +152,16 @@ function pickPayloadValue(payload, keys, fallback) {
 
 function checkTelegramBotStatus() {
   const runtimeMode = getTelegramRuntimeMode();
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const messengerProvider = getMessengerProvider();
+  const token = getBotApiToken();
   if (!token) {
     return jsonResponse({
       ok: false,
-      error: 'TELEGRAM_BOT_TOKEN не задан',
+      error: messengerProvider === 'vk' ? 'VK_BOT_TOKEN не задан' : 'TELEGRAM_BOT_TOKEN не задан',
       buildVersion: BUILD_VERSION,
       apiSignature: BACKEND_API_SIGNATURE,
-      runtimeMode: runtimeMode
+      runtimeMode: runtimeMode,
+      messengerProvider: messengerProvider
     });
   }
 
@@ -171,7 +173,8 @@ function checkTelegramBotStatus() {
       telegram: resp || null,
       buildVersion: BUILD_VERSION,
       apiSignature: BACKEND_API_SIGNATURE,
-      runtimeMode: runtimeMode
+      runtimeMode: runtimeMode,
+      messengerProvider: messengerProvider
     });
   }
 
@@ -181,6 +184,7 @@ function checkTelegramBotStatus() {
     buildVersion: BUILD_VERSION,
     apiSignature: BACKEND_API_SIGNATURE,
     runtimeMode: runtimeMode,
+    messengerProvider: messengerProvider,
     capabilities: {
       briefEquipmentInGroup: true,
       managerBotCommands: runtimeMode !== 'direct'

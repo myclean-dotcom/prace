@@ -3,11 +3,14 @@
 function __checkConfiguration() {
   const out = {
     buildVersion: BUILD_VERSION,
+    messengerProvider: getMessengerProvider(),
     telegramRuntimeMode: getTelegramRuntimeMode(),
     spreadsheetId: String(PROP.getProperty('SPREADSHEET_ID') || '').trim() || 'NOT_SET',
-    botTokenSet: !!String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim(),
+    botTokenSet: !!getBotApiToken(),
     telegramChatId: String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim() || 'NOT_SET',
     telegramChatNovosibirsk: String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim() || 'NOT_SET',
+    vkChatId: String(PROP.getProperty('VK_CHAT_ID') || '').trim() || 'NOT_SET',
+    vkChatNovosibirsk: String(PROP.getProperty('VK_CHAT_NOVOSIBIRSK') || '').trim() || 'NOT_SET',
     telegramManagerChatId: getManagerChatId() || 'NOT_SET',
     telegramEventsChatId: getEventsChatId() || 'NOT_SET',
     storedWebAppExecUrl: String(PROP.getProperty(WEBAPP_EXEC_URL_PROPERTY) || '').trim() || 'NOT_SET',
@@ -33,8 +36,23 @@ function __setTelegramRuntimeMode(mode) {
   return out;
 }
 
+function __setMessengerProvider(provider) {
+  const normalized = String(provider || '').trim().toLowerCase();
+  if (normalized !== 'telegram' && normalized !== 'vk') {
+    throw new Error('Передайте provider: telegram или vk');
+  }
+  PROP.setProperty(MESSENGER_PROVIDER_PROPERTY, normalized);
+  const out = {
+    ok: true,
+    messengerProvider: normalized,
+    buildVersion: BUILD_VERSION
+  };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
 function __switchToDirectTelegramMode() {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const token = getBotApiToken();
   PROP.setProperty(TELEGRAM_RUNTIME_MODE_PROPERTY, 'direct');
   let deleteWebhook = { ok: false, skipped: true, reason: 'token not set' };
   if (token) {
@@ -183,7 +201,7 @@ function __setWebAppExecUrl(url) {
   if (normalized && !isUsableWebhookTarget(normalized)) normalized = '';
 
   if (!normalized) {
-    const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+    const token = getBotApiToken();
     if (token) {
       const info = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
       if (info && info.ok === true && info.result && info.result.url) {
@@ -206,7 +224,7 @@ function __setWebAppExecUrl(url) {
 }
 
 function __setWebhookProd() {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const token = getBotApiToken();
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
 
   if (isDirectTelegramRuntime()) {
@@ -271,7 +289,7 @@ function __setWebhookProd() {
 }
 
 function __setTelegramBotCommands() {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const token = getBotApiToken();
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
 
   if (isDirectTelegramRuntime()) {
@@ -419,7 +437,7 @@ function __setProdUrlAndCheckButton(url) {
 }
 
 function __getTelegramWebhookInfo() {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const token = getBotApiToken();
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
   const info = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
   const out = { ok: true, buildVersion: BUILD_VERSION, webhookInfo: info };
@@ -453,10 +471,15 @@ function __checkAllButtonReasons(targetUrl) {
     if (advice) out.advice.push(advice);
   };
 
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const provider = getMessengerProvider();
+  const token = getBotApiToken();
   const spreadsheetId = String(PROP.getProperty('SPREADSHEET_ID') || '').trim();
-  const chatNovosibirsk = String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim();
-  const chatFallback = String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
+  const chatNovosibirsk = provider === 'vk'
+    ? String(PROP.getProperty('VK_CHAT_NOVOSIBIRSK') || PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim()
+    : String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim();
+  const chatFallback = provider === 'vk'
+    ? String(PROP.getProperty('VK_CHAT_ID') || PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim()
+    : String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
   const managerChatId = String(PROP.getProperty('TELEGRAM_MANAGER_CHAT_ID') || '').trim();
   const eventsChatId = String(PROP.getProperty('TELEGRAM_EVENTS_CHAT_ID') || '').trim();
 
@@ -465,6 +488,7 @@ function __checkAllButtonReasons(targetUrl) {
   const resolvedExecUrl = normalizeWebhookUrlToExec(resolveWebhookExecUrl(targetUrl || ''));
 
   out.checks.properties = {
+    messengerProvider: provider,
     runtimeMode: getTelegramRuntimeMode(),
     tokenSet: !!token,
     spreadsheetIdSet: !!spreadsheetId,
@@ -488,13 +512,21 @@ function __checkAllButtonReasons(targetUrl) {
   }
 
   if (!token) {
-    pushFailure('TELEGRAM_BOT_TOKEN не задан.', 'Добавьте TELEGRAM_BOT_TOKEN в Script Properties.');
+    pushFailure(
+      provider === 'vk' ? 'VK_BOT_TOKEN не задан.' : 'TELEGRAM_BOT_TOKEN не задан.',
+      provider === 'vk' ? 'Добавьте VK_BOT_TOKEN (или TELEGRAM_BOT_TOKEN для совместимости) в Script Properties.' : 'Добавьте TELEGRAM_BOT_TOKEN в Script Properties.'
+    );
   }
   if (!spreadsheetId) {
     pushFailure('SPREADSHEET_ID не задан.', 'Добавьте SPREADSHEET_ID в Script Properties.');
   }
   if (!chatNovosibirsk && !chatFallback) {
-    pushFailure('Не задан chat id для публикации заявок.', 'Добавьте TELEGRAM_CHAT_NOVOSIBIRSK или TELEGRAM_CHAT_ID.');
+    pushFailure(
+      'Не задан chat id для публикации заявок.',
+      provider === 'vk'
+        ? 'Добавьте VK_CHAT_NOVOSIBIRSK или VK_CHAT_ID.'
+        : 'Добавьте TELEGRAM_CHAT_NOVOSIBIRSK или TELEGRAM_CHAT_ID.'
+    );
   }
   if (!eventsChatId) {
     pushWarning('TELEGRAM_EVENTS_CHAT_ID не задан.', 'Задайте TELEGRAM_EVENTS_CHAT_ID для отдельной группы уведомлений менеджера.');
@@ -510,7 +542,12 @@ function __checkAllButtonReasons(targetUrl) {
     const me = urlFetchJson(`https://api.telegram.org/bot${token}/getMe`, { method: 'get' });
     out.checks.telegramGetMe = me;
     if (!me || me.ok !== true || !me.result) {
-      pushFailure('Telegram getMe вернул ошибку (токен/бот недоступен).', 'Проверьте TELEGRAM_BOT_TOKEN и запустите __checkAllButtonReasons снова.');
+      pushFailure(
+        (provider === 'vk' ? 'VK' : 'Telegram') + ' getMe вернул ошибку (токен/бот недоступен).',
+        provider === 'vk'
+          ? 'Проверьте VK_BOT_TOKEN и запустите __checkAllButtonReasons снова.'
+          : 'Проверьте TELEGRAM_BOT_TOKEN и запустите __checkAllButtonReasons снова.'
+      );
     }
 
     const webhookInfo = urlFetchJson(`https://api.telegram.org/bot${token}/getWebhookInfo`, { method: 'get' });
@@ -679,7 +716,7 @@ function checkWebAppPublicHealth(execUrl) {
 }
 
 function __deleteTelegramWebhook() {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const token = getBotApiToken();
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
   const resp = urlFetchJson(`https://api.telegram.org/bot${token}/deleteWebhook`, {
     method: 'post',
@@ -725,8 +762,10 @@ function __probeWebhookDoPostVersion(targetUrl) {
 }
 
 function __testTelegramSend() {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
-  const chat = String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
+  const token = getBotApiToken();
+  const chat = getMessengerProvider() === 'vk'
+    ? String(PROP.getProperty('VK_CHAT_NOVOSIBIRSK') || PROP.getProperty('VK_CHAT_ID') || PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim()
+    : String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан');
   if (!chat) throw new Error('TELEGRAM_CHAT_NOVOSIBIRSK/TELEGRAM_CHAT_ID не задан');
 
@@ -740,10 +779,12 @@ function __testTelegramSend() {
 }
 
 function __sendTestGroupMessage() {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const token = getBotApiToken();
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN не задан');
 
-  const managerChat = String(getManagerChatId() || PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
+  const managerChat = getMessengerProvider() === 'vk'
+    ? String(getManagerChatId() || PROP.getProperty('VK_CHAT_ID') || PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim()
+    : String(getManagerChatId() || PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
   const out = sendGroupCallbackTestMessage(token, managerChat, managerChat);
   Logger.log(JSON.stringify(out));
   return out;

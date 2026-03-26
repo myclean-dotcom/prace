@@ -8,8 +8,14 @@ function handleTextMessage(message, token) {
   const text = String(message.text || '').trim();
   if (!text) return jsonResponse({ ok: true, buildVersion: BUILD_VERSION });
 
-  if (!String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim() && chatId) {
-    PROP.setProperty('TELEGRAM_CHAT_ID', chatId);
+  if (chatId) {
+    if (isVkProvider()) {
+      if (!String(PROP.getProperty('VK_CHAT_ID') || '').trim()) {
+        PROP.setProperty('VK_CHAT_ID', chatId);
+      }
+    } else if (!String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim()) {
+      PROP.setProperty('TELEGRAM_CHAT_ID', chatId);
+    }
   }
 
   const managerMode = isManagerContext(userId, chatId);
@@ -152,16 +158,26 @@ function processManagerCommand(text, token, replyChatId, userId, managerMode) {
   if (command === '/setgroup') {
     const cid = String(replyChatId || '').trim();
     if (!cid) return { handled: true, ok: false, error: 'chat_id_empty' };
-    PROP.setProperty('TELEGRAM_CHAT_ID', cid);
-    sendManagerCommandReply(token, replyChatId, `✅ TELEGRAM_CHAT_ID = ${cid}`, null, buildManagerPanelKeyboard());
+    if (isVkProvider()) {
+      PROP.setProperty('VK_CHAT_ID', cid);
+      sendManagerCommandReply(token, replyChatId, `✅ VK_CHAT_ID = ${cid}`, null, buildManagerPanelKeyboard());
+    } else {
+      PROP.setProperty('TELEGRAM_CHAT_ID', cid);
+      sendManagerCommandReply(token, replyChatId, `✅ TELEGRAM_CHAT_ID = ${cid}`, null, buildManagerPanelKeyboard());
+    }
     return { handled: true, ok: true, command: command, chatId: cid };
   }
 
   if (command === '/setnsk') {
     const cid = String(replyChatId || '').trim();
     if (!cid) return { handled: true, ok: false, error: 'chat_id_empty' };
-    PROP.setProperty('TELEGRAM_CHAT_NOVOSIBIRSK', cid);
-    sendManagerCommandReply(token, replyChatId, `✅ TELEGRAM_CHAT_NOVOSIBIRSK = ${cid}`, null, buildManagerPanelKeyboard());
+    if (isVkProvider()) {
+      PROP.setProperty('VK_CHAT_NOVOSIBIRSK', cid);
+      sendManagerCommandReply(token, replyChatId, `✅ VK_CHAT_NOVOSIBIRSK = ${cid}`, null, buildManagerPanelKeyboard());
+    } else {
+      PROP.setProperty('TELEGRAM_CHAT_NOVOSIBIRSK', cid);
+      sendManagerCommandReply(token, replyChatId, `✅ TELEGRAM_CHAT_NOVOSIBIRSK = ${cid}`, null, buildManagerPanelKeyboard());
+    }
     return { handled: true, ok: true, command: command, chatId: cid };
   }
 
@@ -391,11 +407,18 @@ function sendBotTextMessage(token, chatId, text, useHtml, replyMarkup) {
 }
 
 function sendGroupCallbackTestMessage(token, replyChatId, userId) {
-  const fallbackChat = String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
-  const nskChat = String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim();
+  const fallbackChat = isVkProvider()
+    ? String(PROP.getProperty('VK_CHAT_ID') || PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim()
+    : String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
+  const nskChat = isVkProvider()
+    ? String(PROP.getProperty('VK_CHAT_NOVOSIBIRSK') || PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim()
+    : String(PROP.getProperty('TELEGRAM_CHAT_NOVOSIBIRSK') || '').trim();
   const targetChatId = String(fallbackChat || nskChat || '').trim();
   if (!targetChatId) {
-    sendManagerCommandReply(token, replyChatId, '❌ Не задан TELEGRAM_CHAT_ID/TELEGRAM_CHAT_NOVOSIBIRSK');
+    const errText = isVkProvider()
+      ? '❌ Не задан VK_CHAT_ID/VK_CHAT_NOVOSIBIRSK'
+      : '❌ Не задан TELEGRAM_CHAT_ID/TELEGRAM_CHAT_NOVOSIBIRSK';
+    sendManagerCommandReply(token, replyChatId, errText);
     return { handled: true, ok: false, error: 'group_chat_not_set' };
   }
 

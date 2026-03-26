@@ -9,7 +9,8 @@ function doGet(e) {
         info: 'webapp active',
         buildVersion: BUILD_VERSION,
         apiSignature: BACKEND_API_SIGNATURE,
-        execUrl: resolveWebhookExecUrl('')
+        execUrl: resolveWebhookExecUrl(''),
+        messengerProvider: getMessengerProvider()
       });
     }
 
@@ -33,6 +34,10 @@ function doPost(e) {
   try {
     const body = parseIncomingBody(e || {});
     try { Logger.log('doPost body: ' + JSON.stringify(body)); } catch (logErr) {}
+
+    if (isVkProvider() && body && body.type) {
+      return handleVkCallbackEnvelope(body);
+    }
 
     if (body.callback_query || body.message || body.edited_message) {
       if (isDirectTelegramRuntime()) {

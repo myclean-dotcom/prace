@@ -9,7 +9,7 @@ function getEventsChatId() {
 }
 
 function notifyManagerNeedInvoice(order, masterName, arrivedAt) {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const token = getBotApiToken();
   const eventsChatId = getEventsChatId();
   if (!token || !eventsChatId) return;
 
@@ -43,7 +43,7 @@ function notifyManagerNeedInvoice(order, masterName, arrivedAt) {
 }
 
 function notifyManagerOrderDone(order, masterName, doneAt) {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const token = getBotApiToken();
   const eventsChatId = getEventsChatId();
   if (!token || !eventsChatId) return;
 
@@ -66,7 +66,7 @@ function notifyManagerOrderDone(order, masterName, doneAt) {
 }
 
 function notifyManagerOrderCancelled(order, masterName, cancelledAt, republish) {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const token = getBotApiToken();
   const eventsChatId = getEventsChatId();
   if (!token || !eventsChatId) return;
 
@@ -91,7 +91,7 @@ function notifyManagerOrderCancelled(order, masterName, cancelledAt, republish) 
 }
 
 function notifyManagerOrderTaken(order, masterName, takenAt) {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const token = getBotApiToken();
   const eventsChatId = getEventsChatId();
   if (!token || !eventsChatId) return;
 
@@ -114,7 +114,7 @@ function notifyManagerOrderTaken(order, masterName, takenAt) {
 }
 
 function notifyManagerPaymentConfirmed(order, masterName, paidAt) {
-  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  const token = getBotApiToken();
   const eventsChatId = getEventsChatId();
   if (!token || !eventsChatId) return;
 

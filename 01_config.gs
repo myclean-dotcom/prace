@@ -9,6 +9,7 @@ const SHEET_NAME = 'Заявки';
 const WEBAPP_EXEC_URL_PROPERTY = 'WEBAPP_EXEC_URL';
 const WEBHOOK_LAST_SYNC_TS_PROPERTY = 'WEBHOOK_LAST_SYNC_TS';
 const TELEGRAM_RUNTIME_MODE_PROPERTY = 'TELEGRAM_RUNTIME_MODE';
+const MESSENGER_PROVIDER_PROPERTY = 'MESSENGER_PROVIDER';
 
 const CALLBACK_CACHE_TTL_SECONDS = 600;
 const ORDER_DM_SENT_PREFIX = 'ORDER_DM_SENT_';
@@ -34,6 +35,24 @@ function getTelegramRuntimeMode() {
 
 function isDirectTelegramRuntime() {
   return getTelegramRuntimeMode() === 'direct';
+}
+
+function getMessengerProvider() {
+  const raw = String(PROP.getProperty(MESSENGER_PROVIDER_PROPERTY) || '').trim().toLowerCase();
+  if (raw === 'vk' || raw === 'vkontakte') return 'vk';
+  if (raw === 'telegram' || raw === 'tg') return 'telegram';
+  return 'vk';
+}
+
+function isVkProvider() {
+  return getMessengerProvider() === 'vk';
+}
+
+function getBotApiToken() {
+  if (isVkProvider()) {
+    return String(PROP.getProperty('VK_BOT_TOKEN') || PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  }
+  return String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
 }
 
 const REQUIRED_HEADERS = [
