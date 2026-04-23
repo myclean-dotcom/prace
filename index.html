@@ -558,6 +558,47 @@
             transform: translateY(-2px);
         }
 
+        .test-tools {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-top: 20px;
+            padding: 16px 18px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #fff8e8 0%, #fff1d2 100%);
+            border: 1px solid #f3d38b;
+        }
+
+        .test-tools-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            color: #7a5a16;
+        }
+
+        .test-tools-copy strong {
+            font-size: 1rem;
+        }
+
+        .test-tools-copy span {
+            font-size: 0.9rem;
+            line-height: 1.45;
+        }
+
+        .btn-create-test {
+            flex: 0 0 auto;
+            min-width: 260px;
+            background: #ffb300;
+            color: #3b2b00;
+            box-shadow: 0 6px 18px rgba(255, 179, 0, 0.2);
+        }
+
+        .btn-create-test:hover {
+            background: #f0a400;
+            transform: translateY(-2px);
+        }
+
         .btn-reset {
             background: #f0f0f0;
             color: #333;
@@ -856,6 +897,18 @@
             background: #f8f9fa;
             padding: 15px;
             border-radius: 8px;
+        }
+
+        @media (max-width: 700px) {
+            .test-tools {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .btn-create-test {
+                width: 100%;
+                min-width: 0;
+            }
         }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -1298,6 +1351,16 @@
                     <textarea id="worksDescription" placeholder="Дополнительные пожелания, особенности помещения..."></textarea>
                 </div>
 
+                <div class="test-tools">
+                    <div class="test-tools-copy">
+                        <strong>Быстрая проверка Telegram</strong>
+                        <span>Кнопка сама заполнит форму тестовыми данными и сразу отправит тестовую заявку в группу для проверки кнопки «ВЫХОЖУ НА ЗАЯВКУ».</span>
+                    </div>
+                    <button class="btn-create-test" id="createTestOrderBtn">
+                        <i class="fas fa-flask"></i> Отправить тестовую заявку
+                    </button>
+                </div>
+
                 <button class="btn-create-order" id="createOrderBtn">
                     <i class="fas fa-file-invoice-dollar"></i> Создать заявку
                 </button>
@@ -1405,6 +1468,7 @@
         const calculateBtn = document.getElementById('calculateBtn');
         const resetBtn = document.getElementById('resetBtn');
         const createOrderBtn = document.getElementById('createOrderBtn');
+        const createTestOrderBtn = document.getElementById('createTestOrderBtn');
         const nextStepBtn = document.getElementById('nextStepBtn');
         
         const totalPriceEl = document.getElementById('totalPrice');
@@ -1571,7 +1635,12 @@
             
             resetBtn.addEventListener('click', resetCalculator);
             nextStepBtn.addEventListener('click', showOrderForm);
-            createOrderBtn.addEventListener('click', createOrder);
+            createOrderBtn.addEventListener('click', function() {
+                createOrder();
+            });
+            createTestOrderBtn.addEventListener('click', function() {
+                createTestOrder();
+            });
             
             masterPayType.addEventListener('change', calculateMasterPay);
             masterPay.addEventListener('input', calculateMasterPay);
@@ -1937,6 +2006,102 @@
             }
         }
 
+        function selectRadioOption(options, value) {
+            const wanted = String(value || '').trim();
+            let found = false;
+
+            options.forEach(option => {
+                const optionValue = String(option.getAttribute('data-value') || '').trim();
+                const selected = optionValue === wanted;
+                option.classList.toggle('selected', selected);
+                if (selected) found = true;
+            });
+
+            return found;
+        }
+
+        function setCheckboxSelections(options, values) {
+            const wanted = (values || []).map(value => String(value).trim());
+            options.forEach(option => {
+                const optionValue = String(option.getAttribute('data-value') || '').trim();
+                option.classList.toggle('selected', wanted.indexOf(optionValue) !== -1);
+            });
+        }
+
+        function buildTestOrderDefaults() {
+            const scheduledAt = new Date();
+            scheduledAt.setDate(scheduledAt.getDate() + 1);
+            scheduledAt.setHours(12, 0, 0, 0);
+
+            return {
+                manager: managerNameInput.value.trim() || 'Менеджер',
+                cleaningType: 'maintenance',
+                area: 48,
+                roomType: 'apartment',
+                difficulty: 2,
+                pets: 'нет',
+                city: 'Новосибирск',
+                customerName: 'Тест',
+                customerPhone: '+79990000000',
+                customerAddress: 'Тестовая улица, 1',
+                customerFlat: '1',
+                orderDate: scheduledAt,
+                masterPayType: '60',
+                equipment: ['Стремянка', 'Пылесос'],
+                chemistry: ['Универсальное средство', 'Средство для сантехники'],
+                worksDescription: 'ТЕСТОВАЯ ЗАЯВКА ДЛЯ ПРОВЕРКИ КНОПКИ "ВЫХОЖУ НА ЗАЯВКУ". После проверки её можно удалить.'
+            };
+        }
+
+        function fillTestOrderForm() {
+            const testOrder = buildTestOrderDefaults();
+
+            managerNameInput.value = testOrder.manager;
+            selectRadioOption(cleaningTypeOptions, testOrder.cleaningType);
+            areaSizeInput.value = String(testOrder.area);
+            roomTypeSelect.value = testOrder.roomType;
+            difficultySlider.value = String(testOrder.difficulty);
+            updateDifficultyDisplay();
+
+            windowsCount.value = '0';
+            windowsType.value = '200';
+            cabinetsCount.value = '0';
+            fridgeCount.value = '0';
+            ovenCount.value = '0';
+            hoodCount.value = '0';
+            appliancesCount.value = '0';
+            farTrip.value = '0';
+
+            selectRadioOption(petsOptions, testOrder.pets);
+            setCheckboxSelections(equipmentOptions, testOrder.equipment);
+            setCheckboxSelections(chemistryOptions, testOrder.chemistry);
+
+            customerName.value = testOrder.customerName;
+            customerPhone.value = testOrder.customerPhone;
+            customerAddress.value = testOrder.customerAddress;
+            customerFlat.value = testOrder.customerFlat;
+            customerCity.value = testOrder.city;
+            orderDate.value = formatDateInputLocal(testOrder.orderDate);
+            orderTime.value = formatTimeInputLocal(testOrder.orderDate);
+            masterPayType.value = testOrder.masterPayType;
+            worksDescription.value = testOrder.worksDescription;
+
+            calculatePrice();
+            calculateMasterPay();
+        }
+
+        async function createTestOrder() {
+            if (isSubmittingOrder) {
+                showStatus('⏳ Заявка уже отправляется. Подождите несколько секунд.', 'error');
+                return;
+            }
+
+            fillTestOrderForm();
+            showOrderForm();
+            showStatus('🧪 Тестовая заявка заполнена. Отправляем её в Telegram и таблицу...', 'info');
+            await createOrder({ isTest: true });
+        }
+
         function showNextStepNotice() {
             nextStepNotice.style.display = 'block';
             setTimeout(() => {
@@ -2005,11 +2170,13 @@
             }
         }
 
-        async function createOrder() {
+        async function createOrder(options = {}) {
             if (isSubmittingOrder) {
                 showStatus('⏳ Заявка уже отправляется. Подождите несколько секунд.', 'error');
                 return;
             }
+
+            const isTestOrder = !!(options && options.isTest);
 
             const manager = managerNameInput.value.trim();
             const city = customerCity.value.trim();
@@ -2130,6 +2297,9 @@
             createOrderBtn.disabled = true;
             createOrderBtn.style.opacity = '0.7';
             createOrderBtn.style.cursor = 'not-allowed';
+            createTestOrderBtn.disabled = true;
+            createTestOrderBtn.style.opacity = '0.7';
+            createTestOrderBtn.style.cursor = 'not-allowed';
 
             loadingEl.style.display = 'block';
             
@@ -2152,7 +2322,8 @@
                 updateTelegramLinkButton(serverResponse);
                 telegramMessageId = serverResponse.messageId || telegramMessageId;
                 const backendVersion = serverResponse.buildVersion ? ` (backend: ${serverResponse.buildVersion})` : '';
-                showStatus(`✅ Заявка №${orderId} создана! Отправлена в Telegram и Google Таблицы${backendVersion}`, 'success');
+                const orderTypeLabel = isTestOrder ? 'Тестовая заявка' : 'Заявка';
+                showStatus(`✅ ${orderTypeLabel} №${orderId} создана! Отправлена в Telegram и Google Таблицы${backendVersion}`, 'success');
                 
                 step3.classList.add('active');
                 step2.classList.remove('active');
@@ -2171,6 +2342,9 @@
                 createOrderBtn.disabled = false;
                 createOrderBtn.style.opacity = '';
                 createOrderBtn.style.cursor = '';
+                createTestOrderBtn.disabled = false;
+                createTestOrderBtn.style.opacity = '';
+                createTestOrderBtn.style.cursor = '';
             }
         }
 
