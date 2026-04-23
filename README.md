@@ -1,87 +1,72 @@
 # Apex Clean: Google Apps Script + Telegram
 
-Актуальная версия backend: `2026-02-24-bot-module-v1`
+Актуальная версия backend: `2026-04-23-gas-clean-v2`
 
 Проект управляет заявками клининга:
-- создание заявки с сайта (`index.html`)
+- создание заявки с сайта `index.html`
 - запись в Google Таблицу
 - публикация заявки в Telegram-группу
 - кнопки мастера: взять, приехал, завершил, оплата, отмена
-- панель менеджера и отправка ссылки/QR на оплату напрямую через бота
+- панель менеджера и отправка ссылки/QR мастеру
 
-## Структура backend (.gs)
-Файл разбит на модули для быстрого сопровождения:
-- `01_config.gs`
-- `02_entry_points.gs`
-- `03_request_parsing_and_bot_health.gs`
-- `04_sheet_storage.gs`
-- `05_orders_create_update.gs`
-- `06_telegram_publish_group.gs`
-- `07_telegram_updates_callbacks.gs`
-- `08_commands_messages_status_flow.gs`
-- `09_telegram_text_photo_reminders.gs`
-- `10_notifications_and_datetime.gs`
-- `11_webhook_city_misc.gs`
-- `12_diagnostics_and_setup.gs`
-- `13_telegram_bot_commands.gs`
-- `Code.gs` — индекс-файл
+## Канонические файлы
+- `Code.gs` — основной и единственный исходник backend для Google Apps Script
+- `Code.single.gs` — автоматически собранная копия `Code.gs` для ручной вставки в Apps Script
+- `index.html` — форма сайта
+- `appsscript.json` — манифест Apps Script
+
+Старые модульные файлы `01_config.gs` ... `13_telegram_bot_commands.gs` оставлены в репозитории только как архив. В `clasp push` они больше не попадают.
 
 ## Обязательные Script Properties
 - `SPREADSHEET_ID`
 - `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_NOVOSIBIRSK` (или `TELEGRAM_CHAT_ID`)
+- `TELEGRAM_CHAT_NOVOSIBIRSK` или `TELEGRAM_CHAT_ID`
 
 Рекомендуется:
 - `TELEGRAM_MANAGER_CHAT_ID`
 - `TELEGRAM_EVENTS_CHAT_ID`
 - `WEBAPP_EXEC_URL`
 
-## Быстрый запуск
-1. Залить `.gs` файлы в Apps Script проект.
-2. Деплой Web App: `Execute as me`, `Who has access: Anyone`.
-3. Запустить:
-- `__setWebhookProd()`
-- `__setTelegramBotCommands()`
-4. Проверить:
-- `__checkConfiguration()`
-- `__checkButtonEndToEnd()`
+## Быстрый запуск вручную
+1. Откройте Apps Script.
+2. Вставьте содержимое `Code.single.gs` в один файл `Code.gs`.
+3. При необходимости вставьте `index.html` как HTML-файл проекта.
+4. В `Script Properties` задайте обязательные значения.
+5. Сделайте Deploy Web App:
+   `Execute as me`
+   `Who has access: Anyone`
+6. Запустите:
+   `__setWebhookProd()`
+   `__setTelegramBotCommands()`
+7. Проверьте:
+   `__checkConfiguration()`
+   `__checkButtonEndToEnd()`
 
 ## Загрузка через clasp
-В репозитории уже настроены:
-- `.clasp.json` (привязан к вашему Script ID)
-- `.claspignore` (отправляет только `.gs`, `.html`, `appsscript.json`)
+В репозитории настроено так, что `clasp push -f` отправляет только:
+- `Code.gs`
+- `index.html`
+- `appsscript.json`
 
-Остается выполнить локально:
+Шаги:
 1. `npm i -g @google/clasp`
 2. `clasp login`
 3. `clasp push -f`
+4. Затем в Apps Script сделайте новый `Deploy -> Manage deployments -> Edit -> New version`
 
-## Команды менеджера (в Telegram)
-- `/panel` — показать панель
-- `/active` — заявки в работе
-- `/planned` — запланированные
-- `/pay` — выбрать заявку и отправить оплату
-- `/pay НОМЕР_ЗАЯВКИ ССЫЛКА [QR: ...]` — отправить оплату сразу
-- `/setmanager` — назначить текущий чат как менеджерский
-- `/setevents` — назначить текущий чат событий
-- `/setgroup` — назначить текущий чат как общий чат заявок
-- `/setnsk` — назначить текущий чат Новосибирска
-- `/myid` — показать `user_id` и `chat_id`
-- `/hidepanel` — скрыть панель
-
-## Команды мастера (в Telegram)
-- `/panel`
-- `/myorder`
-- `/arrived`
-- `/done`
-- `/paid`
-- `/cancel`
-- `/hidepanel`
+## Диагностика
+- `__repairTelegramButtonsAndSendTest()` — перепривязать webhook, обновить команды и отправить тест в группу
+- `__getTelegramWebhookInfo()` — посмотреть webhook Telegram
+- `__checkButtonEndToEnd()` — полная проверка callback-маршрута
+- `__testTelegramSend()` — тест отправки сообщения
+- `__sendTestGroupMessage()` — тестовая кнопка в группу
 
 ## Важно по кнопкам Telegram
-Если кнопки перестали срабатывать, обычно причина в старом деплое `/exec`.
+Если кнопки перестали работать, причина почти всегда одна:
+- Telegram webhook смотрит на старый `/exec` URL
 
 Что делать:
-1. Новый Deploy Web App.
-2. Сразу `__setWebhookProd()`.
-3. Проверка `__checkButtonEndToEnd()`.
+1. Сделайте новый Deploy Web App.
+2. Запустите `__repairTelegramButtonsAndSendTest()`.
+3. Если функция покажет расхождение URL, выполните ее с явным адресом:
+   `__repairTelegramButtonsAndSendTest("ВАШ_НОВЫЙ_/exec_URL")`
