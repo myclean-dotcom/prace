@@ -749,6 +749,43 @@ function __sendTestGroupMessage() {
   return out;
 }
 
+function __repairTelegramButtonsAndSendTest(webAppExecUrl) {
+  const mode = __switchToAppsScriptTelegramMode();
+
+  let setUrl = null;
+  const incomingUrl = normalizeWebhookUrlToExec(webAppExecUrl || '');
+  if (incomingUrl) {
+    setUrl = __setWebAppExecUrl(incomingUrl);
+  }
+
+  const webhook = __setWebhookProd();
+  const commands = __setTelegramBotCommands();
+  const diagnostics = __checkAllButtonReasons(incomingUrl || '');
+  const testMessage = __sendTestGroupMessage();
+
+  const out = {
+    ok: !!(
+      webhook &&
+      webhook.ok !== false &&
+      commands &&
+      commands.ok === true &&
+      diagnostics &&
+      diagnostics.ok === true &&
+      testMessage &&
+      testMessage.ok === true
+    ),
+    buildVersion: BUILD_VERSION,
+    mode: mode,
+    setUrl: setUrl,
+    webhook: webhook,
+    commands: commands,
+    diagnostics: diagnostics,
+    testMessage: testMessage
+  };
+  Logger.log(JSON.stringify(out));
+  return out;
+}
+
 function __testCreateOrder() {
   const payload = {
     action: 'create',
