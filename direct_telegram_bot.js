@@ -270,8 +270,33 @@ async function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
   });
 }
 
-async function setBotCommands() {
-  const commands = [
+function telegramCallSucceeded(result) {
+  return !!(result && result.ok && result.body && result.body.ok === true);
+}
+
+async function getMe() {
+  return tg('getMe', null, 'GET');
+}
+
+async function getWebhookInfo() {
+  return tg('getWebhookInfo', null, 'GET');
+}
+
+async function ensureLongPollingMode() {
+  const deletedWebhook = await tg('deleteWebhook', {
+    drop_pending_updates: false
+  });
+  const webhookInfo = await getWebhookInfo();
+
+  return {
+    ok: telegramCallSucceeded(deletedWebhook) && telegramCallSucceeded(webhookInfo),
+    deletedWebhook,
+    webhookInfo
+  };
+}
+
+function buildBotCommands() {
+  const privateCommands = [
     { command: 'panel', description: 'Показать панель' },
     { command: 'myorder', description: 'Моя текущая заявка' },
     { command: 'arrived', description: 'Мастер: прибыл на объект' },
@@ -281,14 +306,57 @@ async function setBotCommands() {
     { command: 'active', description: 'Менеджер: заявки в работе' },
     { command: 'planned', description: 'Менеджер: запланированные заявки' },
     { command: 'pay', description: 'Менеджер: отправить оплату мастеру' },
+    { command: 'testgroup', description: 'Отправить тестовую заявку в группу' },
     { command: 'setmanager', description: 'Сделать чат менеджерским' },
     { command: 'setevents', description: 'Сделать чат событий' },
     { command: 'setgroup', description: 'Сделать чат общим по заявкам' },
     { command: 'setnsk', description: 'Назначить чат Новосибирска' },
+    { command: 'setcommands', description: 'Обновить команды бота' },
     { command: 'myid', description: 'Показать user_id/chat_id' },
     { command: 'diag', description: 'Диагностика бота' }
   ];
-  return tg('setMyCommands', { commands });
+
+  const groupCommands = [
+    { command: 'panel', description: 'Показать панель' },
+    { command: 'active', description: 'Заявки в работе' },
+    { command: 'planned', description: 'Запланированные заявки' },
+    { command: 'pay', description: 'Отправить оплату мастеру' },
+    { command: 'testgroup', description: 'Отправить тестовую заявку' },
+    { command: 'setmanager', description: 'Сделать чат менеджерским' },
+    { command: 'setevents', description: 'Сделать чат событий' },
+    { command: 'setgroup', description: 'Сделать чат общим по заявкам' },
+    { command: 'setnsk', description: 'Назначить чат Новосибирска' },
+    { command: 'setcommands', description: 'Обновить команды бота' },
+    { command: 'myid', description: 'Показать user_id/chat_id' },
+    { command: 'diag', description: 'Диагностика бота' }
+  ];
+
+  return {
+    defaultCommands: privateCommands,
+    privateCommands,
+    groupCommands
+  };
+}
+
+async function setCommandsForScope(commands, scope) {
+  return tg('setMyCommands', {
+    commands,
+    scope
+  });
+}
+
+async function setBotCommands() {
+  const scopes = buildBotCommands();
+  const defaultSet = await setCommandsForScope(scopes.defaultCommands, { type: 'default' });
+  const privateSet = await setCommandsForScope(scopes.privateCommands, { type: 'all_private_chats' });
+  const groupSet = await setCommandsForScope(scopes.groupCommands, { type: 'all_group_chats' });
+
+  return {
+    ok: telegramCallSucceeded(defaultSet) && telegramCallSucceeded(privateSet) && telegramCallSucceeded(groupSet),
+    defaultSet,
+    privateSet,
+    groupSet
+  };
 }
 
 function resolveGroupChatId(city) {
@@ -467,7 +535,7 @@ function masterPanelKeyboard() {
 
 function parseCallbackData(rawData) {
   const s = String(rawData || '').trim();
-  const m = s.match(/^(take|arrive|done|paid|cancel|managerpay)[:|_]?(.+)?$/i);
+  const m = s.match(/^(take|arrive|done|paid|cancel|managerpay|test)[:|_]?(.+)?$/i);
   if (!m) return { action: '', orderId: '' };
   return {
     action: String(m[1] || '').toLowerCase(),
@@ -546,6 +614,37 @@ async function createOrder(payload) {
     chat: order.telegram.groupChatId,
     messageId: order.telegram.groupMessageId,
     buildVersion: BUILD_VERSION
+  };
+}
+
+function buildSyntheticTestOrderPayload() {
+  const dt = new Date();
+  dt.setDate(dt.getDate() + 1);
+  dt.setHours(12, 0, 0, 0);
+
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(dt.getFullYear());
+  const hh = String(dt.getHours()).padStart(2, '0');
+  const min = String(dt.getMinutes()).padStart(2, '0');
+
+  return {
+    orderId: `CLN-${Date.now().toString().slice(-8)}`,
+    manager: 'Тест',
+    customerName: 'Тест',
+    customerPhone: '+79990000000',
+    customerCity: 'Новосибирск',
+    customerAddress: 'Тестовая улица, 1',
+    customerFlat: '1',
+    orderDate: `${dd}.${mm}.${yyyy}`,
+    orderTime: `${hh}:${min}`,
+    orderTotal: '3500',
+    masterPay: '2100',
+    cleaningType: 'Тестовая уборка',
+    area: '48',
+    equipment: 'Стремянка, Пылесос',
+    chemistry: 'Универсальное средство, Средство для сантехники',
+    worksDescription: 'ТЕСТОВАЯ ЗАЯВКА ДЛЯ ПРОВЕРКИ КНОПКИ "ВЫХОЖУ НА ЗАЯВКУ".'
   };
 }
 
@@ -774,6 +873,11 @@ async function handleCallback(update) {
     return;
   }
 
+  if (parsed.action === 'test') {
+    await answerCallbackQuery(cb.id, '✅ Callback работает');
+    return;
+  }
+
   const order = requireOrder(parsed.orderId);
   let result = { ok: false, message: '❌ Неизвестное действие' };
 
@@ -895,6 +999,47 @@ function buildDiagnostic() {
   };
 }
 
+async function checkBotStatus() {
+  const me = await getMe();
+  const webhookInfo = await getWebhookInfo();
+
+  if (!telegramCallSucceeded(me)) {
+    return {
+      ok: false,
+      error: (me && me.raw) || 'Telegram getMe failed',
+      telegram: me || null,
+      buildVersion: BUILD_VERSION,
+      runtimeMode: 'direct'
+    };
+  }
+
+  return {
+    ok: true,
+    bot: {
+      id: me.body.result.id,
+      username: me.body.result.username || '',
+      first_name: me.body.result.first_name || ''
+    },
+    buildVersion: BUILD_VERSION,
+    runtimeMode: 'direct',
+    webhookInfo: telegramCallSucceeded(webhookInfo) ? webhookInfo.body : webhookInfo
+  };
+}
+
+function looksLikeCreatePayload(payload) {
+  const source = payload || {};
+  return !!(
+    source.customerName ||
+    source.customerPhone ||
+    source.customerAddress ||
+    source.customerCity ||
+    source.city ||
+    source.cleaningType ||
+    source.orderTotal ||
+    source.total
+  );
+}
+
 async function handleMessage(update) {
   const msg = update.message;
   if (!msg || !msg.chat || !msg.from) return;
@@ -945,6 +1090,12 @@ async function handleMessage(update) {
   if (cmd === '/diag') {
     const d = buildDiagnostic();
     await sendText(chatId, `<pre>${safe(JSON.stringify(d, null, 2))}</pre>`, true);
+    return;
+  }
+
+  if (cmd === '/setcommands') {
+    const out = await setBotCommands();
+    await sendText(chatId, out.ok ? '✅ Команды бота обновлены.' : '❌ Не удалось обновить команды бота.');
     return;
   }
 
@@ -1013,6 +1164,19 @@ async function handleMessage(update) {
       const payload = parsePayPayload(parts.slice(2).join(' '));
       const out = await sendOrderPaymentToMaster(order, payload, chatId);
       await sendText(chatId, out.message, false, managerPanelKeyboard());
+      return;
+    }
+
+    if (cmd === '/testgroup') {
+      const out = await createOrder(buildSyntheticTestOrderPayload());
+      await sendText(
+        chatId,
+        out.ok
+          ? `✅ Тестовая заявка <code>${safe(out.orderId)}</code> отправлена в группу.`
+          : `❌ Не удалось отправить тестовую заявку: ${safe(out.error || 'unknown_error')}`,
+        true,
+        managerPanelKeyboard()
+      );
       return;
     }
   }
@@ -1147,6 +1311,13 @@ function sendJson(res, code, obj) {
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
+  if (req.method === 'GET' && u.pathname === '/' && u.searchParams.get('health') === '1') {
+    const me = await checkBotStatus();
+    return sendJson(res, me.ok ? 200 : 500, Object.assign({
+      info: 'direct bot active'
+    }, me));
+  }
+
   if (req.method === 'GET' && u.pathname === '/health') {
     return sendJson(res, 200, {
       ok: true,
@@ -1156,6 +1327,11 @@ const server = http.createServer(async (req, res) => {
       managerChatIdSet: !!normalizeId(state.config.managerChatId),
       eventsChatIdSet: !!normalizeId(state.config.eventsChatId)
     });
+  }
+
+  if (req.method === 'GET' && u.pathname === '/commands/refresh') {
+    const out = await setBotCommands();
+    return sendJson(res, out.ok ? 200 : 500, out);
   }
 
   if (req.method === 'GET' && u.pathname === '/orders') {
@@ -1174,6 +1350,38 @@ const server = http.createServer(async (req, res) => {
     const payload = parseBody(req, raw);
     const out = await createOrder(payload || {});
     return sendJson(res, out.ok ? 200 : 400, out);
+  }
+
+  if (req.method === 'POST' && (u.pathname === '/' || u.pathname === '/exec' || u.pathname === '/dev')) {
+    const raw = await readRawBody(req);
+    const payload = parseBody(req, raw);
+    const action = String(payload.action || '').trim().toLowerCase();
+
+    if (action === 'check_bot') {
+      const out = await checkBotStatus();
+      return sendJson(res, out.ok ? 200 : 500, out);
+    }
+
+    if (action === 'probe_version') {
+      return sendJson(res, 200, {
+        ok: true,
+        action: 'probe_version',
+        buildVersion: BUILD_VERSION,
+        mode: 'direct-telegram-bot'
+      });
+    }
+
+    if (action === 'create' || action === 'update' || looksLikeCreatePayload(payload)) {
+      const out = await createOrder(payload || {});
+      return sendJson(res, out.ok ? 200 : 400, out);
+    }
+
+    return sendJson(res, 400, {
+      ok: false,
+      error: 'unknown action',
+      keys: Object.keys(payload || {}),
+      buildVersion: BUILD_VERSION
+    });
   }
 
   if (req.method === 'POST' && u.pathname === '/manager/pay') {
@@ -1208,15 +1416,21 @@ async function start() {
   cleanupCallbackDone();
   saveState();
 
+  const pollingMode = await ensureLongPollingMode();
+  if (!pollingMode.ok) {
+    console.log('deleteWebhook/getWebhookInfo failed:', JSON.stringify(pollingMode));
+  }
+
   const cmd = await setBotCommands();
   if (!cmd.ok) {
-    console.log('setMyCommands failed:', cmd.raw);
+    console.log('setMyCommands failed:', JSON.stringify(cmd));
   }
 
   server.listen(PORT, () => {
     console.log(`Direct bot API listening on :${PORT}`);
     console.log(`Build: ${BUILD_VERSION}`);
     console.log(`State file: ${STATE_FILE}`);
+    console.log(`Long polling mode prepared: ${pollingMode.ok ? 'yes' : 'no'}`);
     if (!resolveGroupChatId('новосибирск')) {
       console.log('WARNING: group chat is not set. Use /setgroup or /setnsk in Telegram.');
     }
