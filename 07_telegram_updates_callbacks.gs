@@ -1,7 +1,7 @@
 /* ---------- Telegram updates ---------- */
 
 function handleTelegramUpdate(body) {
-  const token = getBotApiToken();
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
   if (!token) return jsonResponse({ ok: false, error: 'Token not set', buildVersion: BUILD_VERSION });
 
   try {
@@ -25,13 +25,8 @@ function handleTelegramUpdate(body) {
     }
 
     if (body.message && body.message.chat && body.message.chat.id) {
-      if (isVkProvider()) {
-        const savedVk = String(PROP.getProperty('VK_CHAT_ID') || '').trim();
-        if (!savedVk) PROP.setProperty('VK_CHAT_ID', String(body.message.chat.id));
-      } else {
-        const saved = String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
-        if (!saved) PROP.setProperty('TELEGRAM_CHAT_ID', String(body.message.chat.id));
-      }
+      const saved = String(PROP.getProperty('TELEGRAM_CHAT_ID') || '').trim();
+      if (!saved) PROP.setProperty('TELEGRAM_CHAT_ID', String(body.message.chat.id));
     }
 
     return jsonResponse({ ok: true, buildVersion: BUILD_VERSION });

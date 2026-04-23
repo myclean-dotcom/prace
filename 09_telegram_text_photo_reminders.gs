@@ -243,7 +243,7 @@ function forwardMasterPhotoToManager(token, message, savedInfo) {
 /* ---------- Reminders ---------- */
 
 function sendReminders() {
-  const token = getBotApiToken();
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
   if (!token) return;
 
   const sheet = getSheet();

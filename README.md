@@ -1,11 +1,11 @@
-# Apex Clean: Google Apps Script + VK/Telegram
+# Apex Clean: Google Apps Script + Telegram
 
 Актуальная версия backend: `2026-02-24-bot-module-v1`
 
 Проект управляет заявками клининга:
 - создание заявки с сайта (`index.html`)
 - запись в Google Таблицу
-- публикация заявки в чат/группу мессенджера
+- публикация заявки в Telegram-группу
 - кнопки мастера: взять, приехал, завершил, оплата, отмена
 - панель менеджера и отправка ссылки/QR на оплату напрямую через бота
 
@@ -28,24 +28,21 @@
 
 ## Обязательные Script Properties
 - `SPREADSHEET_ID`
-- `MESSENGER_PROVIDER` = `vk` (или `telegram`)
-- для `vk`: `VK_BOT_TOKEN`, `VK_CONFIRMATION_CODE`, `VK_CHAT_NOVOSIBIRSK` (или `VK_CHAT_ID`)
-- для `telegram`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_NOVOSIBIRSK` (или `TELEGRAM_CHAT_ID`)
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_NOVOSIBIRSK` (или `TELEGRAM_CHAT_ID`)
 
 Рекомендуется:
 - `TELEGRAM_MANAGER_CHAT_ID`
 - `TELEGRAM_EVENTS_CHAT_ID`
-- `VK_CALLBACK_SECRET` (если включили secret в VK Callback API)
 - `WEBAPP_EXEC_URL`
 
 ## Быстрый запуск
 1. Залить `.gs` файлы в Apps Script проект.
 2. Деплой Web App: `Execute as me`, `Who has access: Anyone`.
-3. Для `vk`: в настройках Callback API группы укажите URL вашего `/exec`, включите события `message_new` и `message_event`.
-4. Для `telegram` запустить:
+3. Запустить:
 - `__setWebhookProd()`
 - `__setTelegramBotCommands()`
-5. Проверить:
+4. Проверить:
 - `__checkConfiguration()`
 - `__checkButtonEndToEnd()`
 
@@ -59,7 +56,7 @@
 2. `clasp login`
 3. `clasp push -f`
 
-## Команды менеджера (в VK/Telegram)
+## Команды менеджера (в Telegram)
 - `/panel` — показать панель
 - `/active` — заявки в работе
 - `/planned` — запланированные
@@ -72,7 +69,7 @@
 - `/myid` — показать `user_id` и `chat_id`
 - `/hidepanel` — скрыть панель
 
-## Команды мастера (в VK/Telegram)
+## Команды мастера (в Telegram)
 - `/panel`
 - `/myorder`
 - `/arrived`
@@ -81,7 +78,7 @@
 - `/cancel`
 - `/hidepanel`
 
-## Важно по кнопкам
+## Важно по кнопкам Telegram
 Если кнопки перестали срабатывать, обычно причина в старом деплое `/exec`.
 
 Что делать:

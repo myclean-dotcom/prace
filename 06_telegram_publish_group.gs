@@ -1,23 +1,11 @@
 /* ---------- Telegram publish ---------- */
 
 function sendOrderToGroup(order, fallbackTelegramChannel) {
-  const token = getBotApiToken();
-  if (!token) {
-    return {
-      ok: false,
-      reason: 'token_not_set',
-      error: isVkProvider() ? 'VK_BOT_TOKEN не задан' : 'TELEGRAM_BOT_TOKEN не задан'
-    };
-  }
+  const token = String(PROP.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  if (!token) return { ok: false, reason: 'token_not_set', error: 'TELEGRAM_BOT_TOKEN не задан' };
 
   const chatId = resolveTelegramChat(order.customerCity, fallbackTelegramChannel);
-  if (!chatId) {
-    return {
-      ok: false,
-      reason: 'chat_not_set',
-      error: isVkProvider() ? 'VK_CHAT_ID не задан' : 'TELEGRAM_CHAT_ID не задан'
-    };
-  }
+  if (!chatId) return { ok: false, reason: 'chat_not_set', error: 'TELEGRAM_CHAT_ID не задан' };
 
   const briefText = generateBriefText(order);
   const callbackData = makeCallbackData(CALLBACK_ACTIONS.TAKE, order.orderId);
@@ -56,3 +44,4 @@ function sendOrderToGroup(order, fallbackTelegramChannel) {
     telegram: resp
   };
 }
+
